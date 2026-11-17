@@ -451,7 +451,7 @@ function checkCompletion(
 	const open = actionableItems(state);
 	if (open.length === 0) return RESET;
 	if (isAwaitingUserAnswer(message)) return SILENT;
-	if (session.hasPendingAsyncWork()) return SILENT;
+	if (session.wakeSources !== undefined) return SILENT;
 	const attempt = count + 1;
 	return {
 		kind: "remind",

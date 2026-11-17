@@ -10,6 +10,7 @@ import {
 	isClosed,
 	parseCall,
 	progressCounts,
+	type ReadTodoDetails,
 	resultView,
 } from "./render.ts";
 import { commitRecordText, type TodoMoreSnapshot, type TodoStatus } from "./state.ts";
@@ -235,7 +236,7 @@ export const describeTodoResult: NonNullable<ToolDefinition<typeof parametersSch
 };
 
 /** Native-shaped result card: INIT/VIEW/expanded show the full list; incremental CRUD shows only the changed items/goal. */
-function resultPanel(details: TodoMoreDetails, args: unknown, expanded: boolean): NativeChild[] {
+function resultPanel(details: ReadTodoDetails, args: unknown, expanded: boolean): NativeChild[] {
 	const { more } = details;
 	const phases = more.phases.filter((phase) => phase.items.length > 0);
 	const missingGoal = tr("[goal missing]", "[缺少目标]");

@@ -75,13 +75,13 @@ function fixture(initial?: TodoMoreSnapshot): Fixture {
 	};
 }
 
+/** The host's projection of a snapshot: the host has no blocked state, so a blocked item reads as pending, and no blocker is carried. */
 function projected(snapshot: TodoMoreSnapshot): HostTodoPhase[] {
 	return snapshot.phases.map((phase) => ({
 		name: phase.name,
 		tasks: phase.items.map((item) => ({
 			content: item.title,
-			status: item.status,
-			...(item.blocker === undefined ? {} : { blocker: item.blocker }),
+			status: item.status === "blocked" ? "pending" : item.status,
 		})),
 	}));
 }
@@ -96,13 +96,13 @@ function expectSaved(
 	expect(result.isError).not.toBe(true);
 	expect(harness.snapshot()).toEqual(expected);
 	expect(result.details?.more).toEqual(expected);
-	expect(result.details?.phases).toEqual(projected(expected));
+	expect(result.details?.phases).toStrictEqual(projected(expected));
 	expect(harness.snapshots()).toHaveLength(previousSnapshots + 1);
 	const entry = harness.snapshots().at(-1);
 	if (entry?.type !== "custom") throw new Error("Expected a persisted todo snapshot");
 	expect(entry.data).toEqual(expected);
 	expect(harness.projections).toHaveLength(previousProjections + 1);
-	expect(harness.projections.at(-1)).toEqual(projected(expected));
+	expect(harness.projections.at(-1)).toStrictEqual(projected(expected));
 }
 
 async function expectRejected(
@@ -115,7 +115,7 @@ async function expectRejected(
 	const result = await invoke();
 	expect(result.isError).toBe(true);
 	expect(result.details?.more).toEqual(before);
-	expect(result.details?.phases).toEqual(projected(before));
+	expect(result.details?.phases).toStrictEqual(projected(before));
 	expect(result.details).not.toHaveProperty("changes");
 	expect(harness.snapshot()).toEqual(before);
 	expect(harness.session.sessionManager.getBranch()).toEqual(entries);
@@ -463,7 +463,7 @@ describe("atomic Todo document execution", () => {
 		expect(result.isError).not.toBe(true);
 		expect(harness.snapshot()).toEqual(populated());
 		expect(harness.snapshots()).toHaveLength(1);
-		expect(harness.projections).toEqual([projected(populated())]);
+		expect(harness.projections).toStrictEqual([projected(populated())]);
 	});
 
 	test("quoted ALL selects a task, while DONE ALL selects all phases", async () => {
@@ -571,7 +571,7 @@ describe("atomic Todo document execution", () => {
 		expect(result.details?.op).toBe("view");
 		expect(result.details).not.toHaveProperty("changes");
 		expect(result.details?.more).toEqual(initial);
-		expect(result.details?.phases).toEqual(projected(initial));
+		expect(result.details?.phases).toStrictEqual(projected(initial));
 		expect(harness.snapshot()).toEqual(initial);
 		expect(harness.session.sessionManager.getBranch()).toEqual(before);
 		expect(harness.snapshots()).toHaveLength(1);
@@ -721,7 +721,7 @@ describe("atomic batch timing through the authority branch", () => {
 		expect(sameEstimate.details?.more).toEqual(changed);
 		expect(harness.snapshots()).toHaveLength(3);
 		expect(harness.projections).toHaveLength(3);
-		expect(harness.projections.at(-1)).toEqual(projected(changed));
+		expect(harness.projections.at(-1)).toStrictEqual(projected(changed));
 
 		const resumed = structuredClone(changed);
 		Object.assign(itemOf(resumed, "Implement"), { status: "in_progress", time: time(changedBudget.budgetId, 12, 7_250, epoch + 30_000) });
@@ -772,7 +772,7 @@ describe("atomic batch timing through the authority branch", () => {
 		expect(harness.snapshot()).toEqual(before);
 		expect(repeated.details?.more).toEqual(before);
 		expect(harness.snapshots()).toHaveLength(1);
-		expect(harness.projections).toEqual([projected(before)]);
+		expect(harness.projections).toStrictEqual([projected(before)]);
 		const explained = timed();
 		itemOf(explained, "Implement").explanation = "Accepted explanation";
 		expectSaved(harness, await harness.callAt(epoch + 4_000, 'EXPLAIN "Implement" "Accepted explanation"'), explained, 1, 1);
