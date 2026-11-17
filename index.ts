@@ -66,6 +66,7 @@
 import type { AgentTool, AgentToolUpdateCallback } from "@oh-my-pi/pi-agent-core";
 import type { AgentSession, ExtensionAPI, ExtensionContext, ToolDefinition, ToolInfo } from "@oh-my-pi/pi-coding-agent";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+import { logger } from "@oh-my-pi/pi-utils";
 import { registerCtx } from "./src/ctx/index.ts";
 import { registerCtxTasklog } from "./src/ctx/tasklog.ts";
 import { errorText } from "./src/errors.ts";
@@ -77,6 +78,7 @@ import { registerReminders } from "./src/reminders.ts";
 import { renderTodoCall, renderTodoResult } from "./src/render.ts";
 import { registerReviewApi } from "./src/review-api.ts";
 import { sessionOf } from "./src/session.ts";
+import { readSettings } from "./src/settings.ts";
 import { initializeTernPlugin } from "./src/tern-plugin-install.ts";
 import { customFormat, DESCRIPTION, type ParentCwd, parametersSchema, runTodo, type TodoMoreDetails } from "./src/tool.ts";
 import { todoDocTopics } from "./src/topics.ts";
@@ -118,6 +120,12 @@ const parentCwdOf =
 		return parentId === undefined ? undefined : AgentRegistry.global().get(parentId)?.session?.sessionManager.getCwd();
 	};
 
+/** One `todo` call, checked against the plugin settings as they stand at the call. */
+async function executeTodo(session: AgentSession, params: unknown, ctx: ExtensionContext) {
+	const settings = await readSettings({ logger }, ctx);
+	return runTodo(session, params, parentCwdOf(ctx), settings.leafMaxMinutes);
+}
+
 /**
  * The canonical active-tool order the oh-my-omp plugins share: requested builtins first in
  * registry order, then every other name sorted by code point. A pure function of the set, so a
@@ -148,7 +156,7 @@ async function restoreTodo(session: AgentSession, ctx: ExtensionContext): Promis
 		get label(): string {
 			return tr("Todo", "待办");
 		},
-		execute: async (_toolCallId: string, params: unknown) => runTodo(session, params, parentCwdOf(ctx)),
+		execute: async (_toolCallId: string, params: unknown) => executeTodo(session, params, ctx),
 	};
 	// The host registry erases each tool's parameter schema; the tool validates its input itself.
 	await session.refreshRpcHostTools([hostTool as unknown as AgentTool]);
@@ -191,7 +199,7 @@ export const TODO_TOOL_DEFINITION = {
 	) => {
 		const session = ownSession(ctx);
 		if (session === undefined) throw new Error(`todo: no session registered for agent ${ctx.agent.id}`);
-		return runTodo(session, params, parentCwdOf(ctx));
+		return executeTodo(session, params, ctx);
 	},
 } satisfies ToolDefinition<typeof parametersSchema, TodoMoreDetails> & { docTopics(): Readonly<Record<string, string>> };
 

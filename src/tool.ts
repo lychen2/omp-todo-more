@@ -5,6 +5,7 @@ import { commitTodoState, type TodoSession } from "./commit.ts";
 import { commitCompletion, sharedWorktreeRoot, worktreeState } from "./git.ts";
 import { participatingModels } from "./models.ts";
 import { customFormat, parametersSchema, parseTodo, type TodoCommand, type TodoCommitClause, type TodoTarget } from "./protocol.ts";
+import { DEFAULT_SETTINGS } from "./settings.ts";
 import {
 	type CommitRecord,
 	commitRecordText,
@@ -367,8 +368,14 @@ function addedItems(params: Params): ItemParam[] {
 	}
 }
 
+/** The budget rules a call is checked against: the per-item cap from the settings, and the budgets the branch already warned as overtime. */
+type BudgetRules = { readonly leafMaxMinutes: number; readonly overtimeWarned: ReadonlySet<string> };
+
+const overCap = (title: string, minutes: number, cap: number): string =>
+	`Task "${title}" estimate ${minutes} min exceeds the ${cap}-minute limit for one item: split the work into several items of at most ${cap} min each`;
+
 /** todo-more's rules on top of the native ones. */
-function ruleErrors(params: Params, previous: TodoMoreState): string[] {
+function ruleErrors(params: Params, previous: TodoMoreState, rules: BudgetRules): string[] {
 	const errors: string[] = [];
 	const hasGoal = previous.kind === "list" && previous.goal.kind === "set";
 	if (params.op !== "view" && params.goal === undefined && !hasGoal) {
@@ -385,11 +392,31 @@ function ruleErrors(params: Params, previous: TodoMoreState): string[] {
 		}
 		if (!estimatedMinutesSchema.safeParse(item.estimatedMinutes).success)
 			errors.push(`Task "${item.title}" needs a positive integer estimate`);
+		else if (item.estimatedMinutes > rules.leafMaxMinutes) errors.push(overCap(item.title, item.estimatedMinutes, rules.leafMaxMinutes));
 	}
 	if (params.op === "explain" && (params.explanation === undefined || params.explanation.trim().length === 0)) {
 		errors.push("explain requires a non-empty explanation");
 	}
 	if (params.op === "estimate" && params.estimatedMinutes === undefined) errors.push("estimate requires estimatedMinutes");
+	if (params.op === "estimate" && params.estimatedMinutes !== undefined && params.task !== undefined) {
+		if (params.estimatedMinutes > rules.leafMaxMinutes) errors.push(overCap(params.task, params.estimatedMinutes, rules.leafMaxMinutes));
+		const phase =
+			previous.kind === "list"
+				? previous.phases.find((candidate) => candidate.items.some((item) => item.title === params.task))
+				: undefined;
+		const time = phase?.items.find((item) => item.title === params.task)?.time;
+		// A warned budget is closed: more time only comes as new items, never a longer estimate.
+		if (
+			phase !== undefined &&
+			time?.kind === "estimated" &&
+			time.minutes !== params.estimatedMinutes &&
+			rules.overtimeWarned.has(time.budgetId)
+		) {
+			errors.push(
+				`Task "${params.task}" already received an overtime warning, so its ${time.minutes}-minute estimate is closed and ESTIMATE cannot change it. Find out why it overran, then add the remaining work as new items with PHASE ${JSON.stringify(phase.name)} and ADD, each at most ${rules.leafMaxMinutes} min`,
+			);
+		}
+	}
 	if (params.op !== "estimate" && params.estimatedMinutes !== undefined) errors.push("estimatedMinutes is only valid on estimate");
 	return errors;
 }
@@ -652,14 +679,17 @@ async function completeWithCommit(
 
 /**
  * Complete calls have one acceptance anchor; generated prefixes never reach this state path.
- * `parentCwd` locates the spawning agent's worktree for a subagent's `DONE`.
+ * `parentCwd` locates the spawning agent's worktree for a subagent's `DONE`;
+ * `leafMaxMinutes` is the per-item estimate cap read from the plugin settings for this call.
  */
 export async function runTodo(
 	session: TodoSession,
 	raw: unknown,
 	parentCwd: ParentCwd = TOP_LEVEL,
+	leafMaxMinutes: number = DEFAULT_SETTINGS.leafMaxMinutes,
 ): Promise<AgentToolResult<TodoMoreDetails>> {
-	const previous = branchFacts(session.sessionManager).state;
+	const facts = branchFacts(session.sessionManager);
+	const previous = facts.state;
 	const input = parametersSchema.safeParse(raw);
 	if (!input.success) return result(session, previous, `Invalid todo arguments: ${input.error.message}`, { isError: true });
 	const parsed = parseTodo(input.data.input);
@@ -677,9 +707,10 @@ export async function runTodo(
 	// All internal transitions belong to this one atomic mutation, not separate visible work intervals.
 	const now = Date.now();
 	// Time spent waiting on the user in `ask` is not work time.
-	const waits = branchFacts(session.sessionManager).waits;
+	const waits = facts.waits;
+	const rules: BudgetRules = { leafMaxMinutes, overtimeWarned: facts.overtimeWarned };
 	for (const params of batch.params) {
-		const errors = ruleErrors(params, next);
+		const errors = ruleErrors(params, next, rules);
 		if (params.op === "goal" && next.kind === "empty") errors.push("GOAL requires a non-empty list; use INIT to create one");
 		// Git runs for the items this operation itself completes, before the branch is touched.
 		const alreadyCompleted =

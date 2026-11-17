@@ -66,7 +66,7 @@ import { errorText } from "./errors.ts";
 import { tr } from "./i18n.ts";
 import { type CutOffWait, cutOffWait, quotaDeadline, quotaNoticeLine } from "./quota-wait.ts";
 import { sessionOf } from "./session.ts";
-import { DEFAULT_REMINDER_SETTINGS, type ReminderSettings, readReminderSettings, silenceNativeTodoAutomation } from "./settings.ts";
+import { DEFAULT_SETTINGS, readSettings, silenceNativeTodoAutomation, type TodoMoreSettings } from "./settings.ts";
 import {
 	actionableItems,
 	explanationText,
@@ -436,7 +436,7 @@ function reminderText(state: ListState, open: readonly OpenItem[], attempt: numb
  */
 function checkCompletion(
 	session: AgentSession,
-	settings: ReminderSettings,
+	settings: TodoMoreSettings,
 	cycle: Cycle,
 	count: number,
 	message: AssistantMessage,
@@ -541,7 +541,7 @@ If you create the list, continue the request in the same turn and avoid re-calli
 function eagerTodoPrelude(
 	pi: ExtensionAPI,
 	session: AgentSession,
-	settings: ReminderSettings,
+	settings: TodoMoreSettings,
 	state: TodoMoreState,
 	promptText: string | undefined,
 ): { customType: string; content: string; display: false; attribution: "agent" } | undefined {
@@ -587,7 +587,7 @@ function eagerTodoPrelude(
 // @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/session/todo-tracker.ts#TodoTracker.takeMidRunNudge
 function takeMidRunNudge(
 	session: AgentSession,
-	settings: ReminderSettings,
+	settings: TodoMoreSettings,
 	cycle: Cycle,
 	state: TodoMoreState,
 ): { customType: string; content: string; display: false; attribution: "agent" } | undefined {
@@ -783,9 +783,9 @@ export function registerReminders(pi: ExtensionAPI): void {
 	/** An auto-compaction finished; the next prompt start re-asserts the eager prelude. */
 	let compacted = false;
 	/** The last read of this plugin's settings; hooks and timers between reads use it. */
-	let settings: ReminderSettings = DEFAULT_REMINDER_SETTINGS;
+	let settings: TodoMoreSettings = DEFAULT_SETTINGS;
 	const refreshSettings = async (ctx: ExtensionContext): Promise<void> => {
-		settings = await readReminderSettings(pi, ctx);
+		settings = await readSettings(pi, ctx);
 	};
 
 	pi.registerMessageRenderer(REMINDER_TYPE, renderReminder);

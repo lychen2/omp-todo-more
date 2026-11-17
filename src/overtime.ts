@@ -35,12 +35,15 @@ type DeadlineBinding = {
 
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
-function overtimeText(title: string, minutes: number, elapsedMs: number): string {
+function overtimeText(title: string, phase: string, minutes: number, elapsedMs: number): string {
 	return `<system-reminder source="todo-more" kind="overtime">
-Todo item "${escapeXmlText(title)}" has exceeded its estimated time: estimate ${minutes} min; elapsed ${(elapsedMs / 60_000).toFixed(2)} min of in_progress wall time.
-The estimate is a forecast, not a deadline or permission to reduce scope. Do not lower the expected outcome, acceptance criteria, or quality, and do not stop because of this warning.
-Verify why this item is taking longer than estimated. Check the evidence and current blockers, decide whether the approach needs to change, and continue advancing the full task. Consider discussing the cause and next approach with a subagent; if you are a subagent, communicate with your parent where useful.
-Keep the todo aligned with actual progress. Do not reset the list or inflate an estimate just to hide an overrun.
+SERIOUS: todo item "${escapeXmlText(title)}" has exceeded its estimated time: estimate ${minutes} min; elapsed ${(elapsedMs / 60_000).toFixed(2)} min of in_progress wall time. An overrun means the plan or the approach is wrong; treat it as a serious problem, not a note to acknowledge and move past.
+Before any other step on this task, investigate why it overran:
+1. Check the evidence: what this item's work actually took, what is still missing, and what blocked, slowed or expanded it.
+2. Decide whether the approach must change. If the cause is unclear, discuss it with a subagent; if you are a subagent, raise it with your parent.
+3. In your next message, state the cause you found and the approach you will take from here.
+This item's estimate is closed: ESTIMATE on it is rejected. If the work needs more time, add the remaining work as new items with PHASE ${escapeXmlText(JSON.stringify(phase))} and ADD, each within the per-item limit, then continue with them.
+Do not lower the expected outcome, acceptance criteria or quality, and do not reset the list or remove and recreate this item to escape the overrun.
 </system-reminder>`;
 }
 
@@ -93,7 +96,7 @@ export function registerOvertime(pi: ExtensionAPI): void {
 							pi.sendMessage(
 								{
 									customType: OVERTIME_TYPE,
-									content: overtimeText(item.title, time.minutes, elapsedMs),
+									content: overtimeText(item.title, phase.name, time.minutes, elapsedMs),
 									display: true,
 									details,
 									attribution: "agent",

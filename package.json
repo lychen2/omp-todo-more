@@ -43,6 +43,14 @@
 				],
 				"default": "default",
 				"description": "Ask for a todo list on the first prompt: preferred reminds, always forces the todo tool call"
+			},
+			"leafMaxMinutes": {
+				"type": "number",
+				"default": 60,
+				"min": 1,
+				"max": 1440,
+				"step": 1,
+				"description": "Largest estimate in minutes a todo item may carry; longer work must be split into several items"
 			}
 		}
 	},
