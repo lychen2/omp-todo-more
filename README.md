@@ -33,8 +33,10 @@ with `omp plugin config omp-todo-more`:
 | `reminders` | `true` | Stop reminders and mid-run nudges while items stay open. |
 | `remindersMax` | `3` | Stop reminders per stop chain before giving up. |
 | `eager` | `default` | `preferred` asks for a list on the first prompt; `always` also forces the `todo` call. |
+| `leafMaxMinutes` | `60` | The largest estimate one item may carry, 1–1440 minutes; an `ADD` or `ESTIMATE` above it rejects the document. |
 
-They are read when a session starts and at every prompt start.
+The reminder settings are read when a session starts and at every prompt
+start; the `todo` tool reads `leafMaxMinutes` on every call.
 
 Do not load the old local `extensions/todo-more/` at the same time. Existing
 omp-config machines retire the old modules through the gated retirement in
@@ -118,7 +120,7 @@ without trimming the task's complete title.
 |---|---|
 | `INIT "objective" "measure" "doneWhen"` | Replace the list and goal; first and unique. Following phase/add lines form one initialization. |
 | `PHASE "name"` followed by `ADD "title" "explanation" minutes` | Append one or more explicitly estimated tasks, creating the phase if needed. Every append block requires its own phase. |
-| `ESTIMATE "title" minutes` | Supply or revise the existing task's total budget without resetting elapsed work. |
+| `ESTIMATE "title" minutes` | Supply or revise the existing task's total budget without resetting elapsed work; rejected once the task received an overtime warning. |
 | `GOAL "objective" "measure" "doneWhen"` | Replace all goal fields on a nonempty list without changing task status or clocks. |
 | `START "title"` | Select the active task. |
 | `EXPLAIN "title" "explanation"` | Replace the task's explanation. |
@@ -128,8 +130,8 @@ without trimming the task's complete title.
 | `VIEW` | Read the list; it must be the document's sole command. |
 
 Every ADD needs a model-provided positive integer estimate, with no default
-or rounding. The maximum is `Math.floor(Number.MAX_SAFE_INTEGER / 60_000)`.
-Missing or invalid estimates reject the complete document. PHASE scopes only
+or rounding, of at most `leafMaxMinutes`. Missing, invalid or larger
+estimates reject the complete document. PHASE scopes only
 immediately following ADD lines, not status selectors; empty phase blocks are
 invalid. INIT without a first PHASE uses `"Tasks"`. Titles and initialization
 phase names must be unique. `"ALL"` is a title, whereas bare `ALL` is a selector.
@@ -185,10 +187,17 @@ how the normal persistence path is verified.
 
 ### Estimates and overtime warnings
 
-`ESTIMATE "title" minutes` supplies or revises an item's total time budget.
-Old snapshots and native-created items have `time.kind: "missing"`; the model
-must explicitly estimate them rather than invent historical time. The first
-estimate starts at the accepted batch's anchor if the item is already active.
+`ESTIMATE "title" minutes` supplies or revises an item's total time budget,
+at most `leafMaxMinutes` like an `ADD`. Old snapshots and native-created items
+have `time.kind: "missing"`; the model must explicitly estimate them rather
+than invent historical time. The first estimate starts at the accepted batch's
+anchor if the item is already active.
+
+Items are the leaves of the list; phases carry no budget. A budget that
+received its overtime warning is closed: an `ESTIMATE` that would change it
+rejects the document, and the error names the phase to add new items to. More
+time for that work comes only as new items, added with `PHASE` and `ADD`,
+each within `leafMaxMinutes`.
 
 | Item transition | Clock behavior |
 |---|---|
@@ -196,7 +205,7 @@ estimate starts at the accepted batch's anchor if the item is already active.
 | Leave `in_progress` for pending, blocked or a closed status | Accumulate the interval and pause. |
 | Resume or explicitly reopen the same item | Keep accumulated time and start another interval. |
 | Repeat `start`, `view`, or edit an explanation/goal | Keep the existing clock. |
-| Revise the estimate | Keep accumulated time and the running interval; a changed value creates a new budget identity. An unchanged value is a no-op. |
+| Revise the estimate before its overtime warning | Keep accumulated time and the running interval; a changed value creates a new budget identity. An unchanged value is a no-op. |
 | Delete and recreate an item | Create a new budget without inheriting the removed item's time. |
 
 An item that remains `in_progress` continues to accrue wall time while its
@@ -223,8 +232,9 @@ requesting injection. Large delays are split only at the platform timeout
 limit.
 
 Each overdue active budget receives one system warning in the normal delivery
-path. A changed estimate gets its own warning if its preserved elapsed time
-exceeds the new budget. A queued message is only a delivery intent; an actual
+path. A changed estimate, made before the warning, gets its own warning if its
+preserved elapsed time exceeds the new budget. A queued message is only a
+delivery intent; an actual
 `mouriya.omp.todo-more.overtime` custom-message entry is the notification fact.
 Compaction retains those facts in the branch journal. Warnings are not copied
 into item snapshots, and reloading reconstructs the timeout from the branch.
@@ -237,13 +247,16 @@ starting a model turn, so it does not undo a human stop. Shutdown cancels the
 timeout and restores `session.commitTodoPhases`; reopening an overdue active
 item checks it again.
 
-The warning identifies the item, estimate and elapsed time, and tells the agent
-to preserve the expected outcome, acceptance criteria and quality; verify the
-overrun's cause; consider changing approach; and keep advancing the full task.
-It recommends discussing the cause and approach with a subagent, or the parent
-when running as a subagent. The plugin does not spawn agents, change task
-status or relax the goal. Estimates are forecasts, not hard deadlines; agents
-must not reset the list or inflate budgets merely to hide an overrun.
+The warning marks the overrun as a serious problem. It identifies the item,
+estimate and elapsed time, and requires the agent, before any other step on
+the task, to check the evidence for the cause, decide whether the approach
+must change (discussing it with a subagent, or the parent when running as a
+subagent, when the cause is unclear), and state the cause and the next
+approach in its next message. It says the item's estimate is closed and names
+the item's phase for `PHASE` and `ADD` of the remaining work. It forbids
+lowering the expected outcome, acceptance criteria or quality, and resetting
+the list or removing and recreating the item to escape the overrun. The plugin
+does not spawn agents, change task status or relax the goal.
 
 ### Git association of a completion
 

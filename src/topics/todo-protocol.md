@@ -16,7 +16,7 @@ INIT replaces the list and goal, must be first and unique, and carries objective
 
 PHASE "name" followed by one or more ADD "title" "explanation" minutes appends outside INIT; each block needs ADD, and its scope ends at the first non-ADD. Status selectors never inherit PHASE.
 
-Every ADD requires your own positive integer minute estimate, no fractions or defaults. ESTIMATE "title" minutes supplies or revises a budget; EXPLAIN "title" "explanation" revises an explanation. Batch related edits in one document.
+Every ADD requires your own positive integer minute estimate, no fractions or defaults, at most the per-item limit (the leafMaxMinutes setting, 60 minutes by default). ESTIMATE "title" minutes supplies or revises a budget within the same limit, except on an item that already received an overtime warning: its estimate is closed and only new items can add time. EXPLAIN "title" "explanation" revises an explanation. Batch related edits in one document.
 
 GOAL "objective" "measure" "doneWhen" replaces all goal fields on an existing nonempty list without normalizing task status; put GOAL first if the list lacks one.
 

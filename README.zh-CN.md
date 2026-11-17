@@ -21,8 +21,9 @@ omp install https://github.com/oh-my-omp/omp-todo-more#release
 | `reminders` | `true` | 仍有未完成项时的 stop reminder 与 mid-run nudge。 |
 | `remindersMax` | `3` | 每条停止链放弃前的 stop reminder 次数。 |
 | `eager` | `default` | `preferred` 在首个 prompt 要求建立列表；`always` 还强制调用 `todo`。 |
+| `leafMaxMinutes` | `60` | 单个任务允许的最大预估，取值 1–1440 分钟；`ADD` 或 `ESTIMATE` 超过它时整份文档被拒绝。 |
 
-会话开始时与每次 prompt 开始时读取这些设置。
+提醒相关设置在会话开始时与每次 prompt 开始时读取；`todo` 工具每次调用时读取 `leafMaxMinutes`。
 
 不要同时加载旧的本地 `extensions/todo-more/`。已在用 omp-config 的机器，旧模块在独立插件安装并通过运行验证后，由 omp-config 更新器执行受门禁保护的退休。
 
@@ -83,7 +84,7 @@ ADD "检查任务历史" "确认已接受操作的顺序" 5
 |---|---|
 |`INIT "objective" "measure" "doneWhen"`|替换列表与 goal，只能作为第一条且至多一次；紧随的 phase/add 合成一次初始化。|
 |`PHASE "name"` 后跟 `ADD "title" "explanation" minutes`|追加一个或多个显式估时的任务，阶段不存在时创建；每个追加块必须有自己的 phase。|
-|`ESTIMATE "title" minutes`|补齐或修订任务总预算，不重置已耗时间。|
+|`ESTIMATE "title" minutes`|补齐或修订任务总预算，不重置已耗时间；任务收到超时警告后被拒绝。|
 |`GOAL "objective" "measure" "doneWhen"`|完整替换非空列表的 goal，不改变任务状态或时钟。|
 |`START "title"`|选择当前 active 任务。|
 |`EXPLAIN "title" "explanation"`|替换任务解释。|
@@ -92,7 +93,7 @@ ADD "检查任务历史" "确认已接受操作的顺序" 5
 |`BLOCK target ["reason"]`、`UNBLOCK target`|阻塞或解除阻塞带引号的 title 或 `PHASE "name"`；均不接受 `ALL`。|
 |`VIEW`|只读列表，必须是文档中唯一命令。|
 
-每个 ADD 必须由模型提供正整数分钟估计，不默认、不取整；最大为 `Math.floor(Number.MAX_SAFE_INTEGER / 60_000)`。缺失或非法估计拒绝整份文档。PHASE 只作用于紧随的 ADD，不限定状态命令；空阶段块无效。INIT 的首个 ADD 没有 PHASE 时使用 `"Tasks"`。任务 title 和初始化中的 phase 名必须唯一。`"ALL"` 是标题，裸 `ALL` 才是 selector。
+每个 ADD 必须由模型提供正整数分钟估计，不默认、不取整，且不超过 `leafMaxMinutes`。缺失、非法或超限的估计拒绝整份文档。PHASE 只作用于紧随的 ADD，不限定状态命令；空阶段块无效。INIT 的首个 ADD 没有 PHASE 时使用 `"Tasks"`。任务 title 和初始化中的 phase 名必须唯一。`"ALL"` 是标题，裸 `ALL` 才是 selector。
 
 ANSI 与 native 调用卡片将完整命令行和未完成末行显示为未提交预览。卡片是这次调用的 pending 视图：执行结果返回后由结果视图替换它，因此一次调用只画一张卡片，预览不会叠在它所预览的列表之上。生成或取消前缀都不改变 Todo。执行读取当前分支，严格解析完整文档，在 working copy 按顺序应用逻辑操作，最后一次提交；语法、目标或规则错误拒绝整批。
 
@@ -112,7 +113,9 @@ reader 按标题联结宿主 `user_todo_edit` 与旧原生工具结果：已知�
 
 ### 估时与超时警告
 
-`ESTIMATE "title" minutes` 用于补齐或修订任务总时间预算。旧 snapshot 和原生入口创建的项为 `time.kind: "missing"`；模型必须显式估时，系统不倒推未知历史耗时。首次补估计时，已经 active 的项从接受批次的锚点开始计时。
+`ESTIMATE "title" minutes` 用于补齐或修订任务总时间预算，与 `ADD` 一样不超过 `leafMaxMinutes`。旧 snapshot 和原生入口创建的项为 `time.kind: "missing"`；模型必须显式估时，系统不倒推未知历史耗时。首次补估计时，已经 active 的项从接受批次的锚点开始计时。
+
+任务是列表的叶子，阶段不带预算。收到超时警告的预算即被关闭：会改变它的 `ESTIMATE` 拒绝整份文档，错误信息给出应追加新任务的阶段名。这部分工作要更多时间，只能用 `PHASE` 加 `ADD` 新增任务，每项同样不超过 `leafMaxMinutes`。
 
 |任务变化|计时行为|
 |---|---|
@@ -120,18 +123,18 @@ reader 按标题联结宿主 `user_todo_edit` 与旧原生工具结果：已知�
 |离开 `in_progress`，变为 pending、blocked 或关闭状态|累计当前区间并暂停。|
 |恢复或显式重新开始同一项|保留累计时间，开始下一个区间。|
 |重复 `start`、执行 `view`、编辑 explanation/goal|保留原有计时。|
-|修订估计|保留累计时间及正在运行的区间；数值变化会创建新的预算身份，同值是 no-op。|
+|在超时警告前修订估计|保留累计时间及正在运行的区间；数值变化会创建新的预算身份，同值是 no-op。|
 |删除后重新创建|新预算不继承被删除项的耗时。|
 
 只要持久状态仍为 `in_progress`，会话 idle 或进程停止期间也继续累计墙钟时间；这不是 CPU 时间统计。原生状态变化使用对应 session entry 的 timestamp 结算。在 `ask` 里等用户作答的时间不算工作时间，从每个 `in_progress` 区间中扣除：一次等待从宿主对该 `ask` 调用写下的 `tool_execution_start` 记录（`startedAt`）开始，到该调用的工具结果（`timestamp`）结束；进程在 ask 未结束时退出，则以宿主的 `session_exit` 记录为结束。这些都从分支读出。
 
 插件只保留距离最近的 active 预算 deadline 的一个单次 timeout；自身 `todo` 结果、宿主在工具外的写入（`/todo`、RPC `set_todos` 与子会话自动完成，均经 `session.commitTodoPhases`）、原生 `todo` 结果、`ask` 调用的结果、turn 与 run 结束、prompt 开始以及 session/branch 变化时重新调度。`ask` 尚未结束时不运行任何 deadline：落在等待期间的 deadline 重新读取分支，看到未结束的 ask 后不告警，等它的结果重新调度。不进行周期轮询，也不改动 session manager 的写入方法和 collaboration callback：从 collaboration 宿主复制来的条目在下一个上述事件时被读取。到点 callback 重新读取当前分支后请求注入；超长等待仅按平台 timeout 上限分段。
 
-每个超时 active 预算在正常投递路径收到一次系统警告。修订后的新预算也有一次警告机会；如果保留的累计时间已经超过新预算，会再次告警。排队消息只是投递意图；实际 `mouriya.omp.todo-more.overtime` custom-message entry 才是通知事实，普通 compaction 保留分支 journal 中的这些记录。警告不复制进 item snapshot，重新加载时按分支重建 timeout。
+每个超时 active 预算在正常投递路径收到一次系统警告。在警告之前修订出的新预算也有一次警告机会；如果保留的累计时间已经超过新预算，会再次告警。排队消息只是投递意图；实际 `mouriya.omp.todo-more.overtime` custom-message entry 才是通知事实，普通 compaction 保留分支 journal 中的这些记录。警告不复制进 item snapshot，重新加载时按分支重建 timeout。
 
 到点时，运行中的会话立即收到 aside 注入请求；宿主在下一个安全 step boundary 将警告提供给模型，不取消工具批次。检测和排队不等待 step 结束。idle 时警告立即追加到 transcript 和 context，但不启动模型 turn，因此不会撤销人工停止。shutdown 取消 timeout 并恢复 `session.commitTodoPhases`；重新打开已超时的 active 项时重新检查。
 
-警告指出任务、预计时间与已耗时间，并要求 agent 保持预期结果、验收标准和质量，核实超时原因、判断是否改变方针、继续推进完整任务。警告推荐与 subagent 讨论原因和方针；子会话可与 parent 沟通。插件不自动创建 agent、不改变任务 status、不降低 goal。估计是预测而非硬 deadline，agent 不得仅为掩盖超时而重建列表或抬高预算。
+警告把超时定性为严重问题。它指出任务、预计时间与已耗时间，并要求 agent 在该任务上做任何其他事之前：核对证据查明超时原因；判断方针是否必须改变（原因不明时与 subagent 讨论，子会话则与 parent 沟通）；在下一条消息里说明查到的原因和接下来的方针。警告说明该任务的预估已关闭，并给出该任务所在阶段名，供剩余工作用 `PHASE` 加 `ADD` 追加。警告禁止降低预期结果、验收标准和质量，也禁止为躲避超时而重建列表或删掉再重建该任务。插件不自动创建 agent、不改变任务 status、不降低 goal。
 
 
 ### 完成与 git 关联

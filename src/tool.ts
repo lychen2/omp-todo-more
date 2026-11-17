@@ -36,6 +36,8 @@ Any error rejects the whole document. The call fails unless:
 - Commands sit between \`*** Begin Todo\` and \`*** End Todo\`, one uppercase command per line, with JSON-quoted string arguments.
 - An empty list starts with INIT "objective" "measure" "doneWhen", followed by at least one ADD; INIT is first and appears once.
 - Every ADD is ADD "title" "explanation" <positive integer minutes>; outside INIT an ADD needs a preceding PHASE "name".
+- No ADD or ESTIMATE gives one item more than the per-item limit (the leafMaxMinutes setting, 60 minutes by default); split longer work into several items.
+- ESTIMATE cannot change the estimate of an item that already received an overtime warning; add its remaining work as new items with PHASE and ADD.
 - Status commands target an existing "title" or PHASE "name", matched exactly (DONE, DROP and RM also take ALL); never use IDs or guess a title.
 - VIEW is the only command in its document.
 - In a git checkout with uncommitted work, DONE carries a commit clause — DONE "title" "<message>" or DONE "title" "<paths>" "<message>" — and the tool runs git commit itself.

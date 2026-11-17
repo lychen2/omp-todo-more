@@ -5,7 +5,16 @@ import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manage
 import type { TodoPhase as HostTodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import { readTodoMore } from "../src/branch.ts";
 import type { TodoSession } from "../src/commit.ts";
-import { elapsedTime, type ItemTime, TODO_MORE_ENTRY_TYPE, type TodoGoal, type TodoMoreSnapshot, toSnapshot } from "../src/state.ts";
+import { DEFAULT_SETTINGS } from "../src/settings.ts";
+import {
+	elapsedTime,
+	type ItemTime,
+	OVERTIME_TYPE,
+	TODO_MORE_ENTRY_TYPE,
+	type TodoGoal,
+	type TodoMoreSnapshot,
+	toSnapshot,
+} from "../src/state.ts";
 import { runTodo, type TodoMoreDetails } from "../src/tool.ts";
 
 const epoch = Date.parse("2026-10-15T12:00:00.000Z");
@@ -118,6 +127,10 @@ function itemOf(snapshot: TodoMoreSnapshot, title: string): SnapshotItem {
 	const item = snapshot.phases.flatMap((phase) => phase.items).find((candidate) => candidate.title === title);
 	if (item === undefined) throw new Error(`Expected task ${title}`);
 	return item;
+}
+
+function resultText(result: AgentToolResult<TodoMoreDetails>): string {
+	return result.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 }
 
 function estimateOf(snapshot: TodoMoreSnapshot, title: string): EstimatedTime {
@@ -806,38 +819,64 @@ describe("atomic batch timing through the authority branch", () => {
 		}
 	}
 
-	test("maximum safe minute estimate is accepted without rounding in ADD and ESTIMATE", async () => {
-		const harness = fixture();
-		const initialized = await harness.call(init, `ADD "Boundary" "Safe millisecond conversion" ${maximumMinutes}`);
-		const original = createdTime(harness, "Boundary", maximumMinutes, epoch);
-		expectSaved(
-			harness,
-			initialized,
-			{
-				goal,
-				phases: [
-					{
-						name: "Tasks",
-						items: [
-							{
-								title: "Boundary",
-								explanation: "Safe millisecond conversion",
-								status: "in_progress",
-								time: original,
-							},
-						],
-					},
-				],
-			},
-			0,
-			0,
+	const limit = DEFAULT_SETTINGS.leafMaxMinutes;
+
+	test("an estimate at the per-item limit is accepted in ADD and ESTIMATE", async () => {
+		const harness = fixture(timed());
+		const result = await harness.callAt(
+			epoch + 1_000,
+			`ESTIMATE "Review" ${limit}`,
+			'PHASE "Delivery"',
+			`ADD "Boundary" "Exactly at the limit" ${limit}`,
 		);
-		const same = await harness.callAt(epoch + 1_000, `ESTIMATE "Boundary" ${maximumMinutes}`);
-		expect(same.isError).not.toBe(true);
-		expect(estimateOf(harness.snapshot(), "Boundary")).toEqual(original);
-		expect(same.details?.changes).toEqual([{ op: "estimate", task: "Boundary", estimatedMinutes: maximumMinutes }]);
-		expect(harness.snapshots()).toHaveLength(1);
+		expect(result.isError).not.toBe(true);
+		expect(estimateOf(harness.snapshot(), "Review").minutes).toBe(limit);
+		expect(estimateOf(harness.snapshot(), "Boundary").minutes).toBe(limit);
 	});
+
+	for (const command of [`ESTIMATE "Review" ${limit + 1}`, `PHASE "Delivery"\nADD "Too long" "One minute over the limit" ${limit + 1}`]) {
+		test(`an estimate one minute over the per-item limit rejects the entire batch: ${command}`, async () => {
+			const harness = fixture(timed());
+			const result = await expectRejected(harness, () => harness.callAt(epoch + 1_000, 'EXPLAIN "Implement" "Would change"', command));
+			expect(resultText(result)).toContain(`exceeds the ${limit}-minute limit for one item`);
+		});
+	}
+
+	test("the configured per-item limit replaces the default", async () => {
+		const harness = fixture(timed());
+		const call = (line: string) =>
+			at(epoch + 1_000, () => runTodo(harness.session, { input: document('PHASE "Delivery"', line) }, undefined, 15));
+		const over = await expectRejected(harness, () => call('ADD "Over" "Above the configured limit" 16'));
+		expect(resultText(over)).toContain("exceeds the 15-minute limit for one item");
+		const within = await call('ADD "Within" "At the configured limit" 15');
+		expect(within.isError).not.toBe(true);
+		expect(estimateOf(harness.snapshot(), "Within").minutes).toBe(15);
+	});
+
+	for (const minutes of [5, 20]) {
+		test(`ESTIMATE cannot change a budget that received an overtime warning: ${minutes} min`, async () => {
+			const harness = fixture(timed());
+			harness.session.sessionManager.appendCustomMessageEntry(OVERTIME_TYPE, "overtime", true, {
+				budgetId: "implement-budget",
+				title: "Implement",
+				estimatedMinutes: 10,
+				elapsedMs: 600_000,
+			});
+			const rejected = await expectRejected(harness, () => harness.callAt(epoch + 700_000, `ESTIMATE "Implement" ${minutes}`));
+			expect(resultText(rejected)).toContain('Task "Implement" already received an overtime warning');
+			expect(resultText(rejected)).toContain('PHASE "Delivery"');
+
+			const continued = await harness.callAt(
+				epoch + 700_000,
+				'ESTIMATE "Implement" 10',
+				'PHASE "Delivery"',
+				'ADD "Implement remainder" "Finish the work the overrun left" 15',
+			);
+			expect(continued.isError).not.toBe(true);
+			expect(estimateOf(harness.snapshot(), "Implement").budgetId).toBe("implement-budget");
+			expect(estimateOf(harness.snapshot(), "Implement remainder").minutes).toBe(15);
+		});
+	}
 
 	for (const lateCommand of ['ESTIMATE "Missing task" 20', 'RM "Missing task"', 'GOAL "" "Measured" "Complete"']) {
 		test(`late failure preserves all original time, goal, status, branch and projection: ${lateCommand}`, async () => {
