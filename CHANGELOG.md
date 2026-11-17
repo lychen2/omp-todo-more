@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
 ### Added
 
 - Plugin setting `leafMaxMinutes` (default `60`, 1–1440) caps the estimate of one todo item: an `ADD` or `ESTIMATE` above it rejects the whole document with an error asking to split the work into several items. The `todo` tool reads the setting on every call.
