@@ -1,9 +1,9 @@
 import { z } from "@oh-my-pi/pi-coding-agent";
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
+import { tr } from "../omomp-shared/i18n.ts";
 import { branchFacts } from "./branch.ts";
 import { commitTodoState, type TodoCommitResult } from "./commit.ts";
 import { errorText } from "./errors.ts";
-import { tr } from "./i18n.ts";
 import { stateOf, type TodoGoal, type TodoMoreState, todoGoalSchema } from "./state.ts";
 
 export type TodoEdit = { kind: "set_goal"; goal: TodoGoal } | { kind: "explain"; title: string; explanation: string };

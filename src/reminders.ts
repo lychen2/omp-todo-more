@@ -61,9 +61,9 @@ import type { Api, AssistantMessage, Model, TextContent, ToolChoice } from "@oh-
 import { type AgentSession, type ExtensionAPI, type ExtensionContext, type MessageRenderer, Text, z } from "@oh-my-pi/pi-coding-agent";
 import { type NativeNode, node, span } from "@oh-my-pi/pi-tui";
 import { escapeXmlText } from "@oh-my-pi/pi-utils";
+import { tr } from "../omomp-shared/i18n.ts";
 import { type BranchFacts, branchFacts, contextBranch } from "./branch.ts";
 import { errorText } from "./errors.ts";
-import { tr } from "./i18n.ts";
 import { type CutOffWait, cutOffWait, quotaDeadline, quotaNoticeLine } from "./quota-wait.ts";
 import { sessionOf } from "./session.ts";
 import { DEFAULT_SETTINGS, readSettings, silenceNativeTodoAutomation, type TodoMoreSettings } from "./settings.ts";
@@ -451,7 +451,11 @@ function checkCompletion(
 	const open = actionableItems(state);
 	if (open.length === 0) return RESET;
 	if (isAwaitingUserAnswer(message)) return SILENT;
-	if (session.hasPendingAsyncWork()) return SILENT;
+	// Host API drift: `hasPendingAsyncWork` is gone; the session's async-job snapshot
+	// (running jobs and queued/in-flight deliveries) answers the same "a wake can still land".
+	const asyncJobs = session.getAsyncJobSnapshot();
+	if (asyncJobs !== null && (asyncJobs.running.length > 0 || asyncJobs.delivery.pendingJobIds.length > 0 || asyncJobs.delivery.delivering))
+		return SILENT;
 	const attempt = count + 1;
 	return {
 		kind: "remind",

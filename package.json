@@ -11,6 +11,7 @@
 		"index.ts",
 		"src",
 		"tern",
+		"omomp-shared",
 		"CHANGELOG.md"
 	],
 	"omomp": {
@@ -56,6 +57,7 @@
 	},
 	"scripts": {
 		"check": "biome check . && tsc --noEmit",
+		"test": "bun test",
 		"format": "biome check --write ."
 	},
 	"peerDependencies": {

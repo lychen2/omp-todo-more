@@ -20,6 +20,7 @@
  */
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { escapeXmlText } from "@oh-my-pi/pi-utils";
+import { createDeltaStream } from "../omomp-shared/context-delta.ts";
 import { branchFacts } from "./branch.ts";
 import { errorText } from "./errors.ts";
 import { sessionOf } from "./session.ts";
@@ -35,19 +36,18 @@ type DeadlineBinding = {
 
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
-function overtimeText(title: string, phase: string, minutes: number, elapsedMs: number): string {
-	return `<system-reminder source="todo-more" kind="overtime">
-SERIOUS: todo item "${escapeXmlText(title)}" has exceeded its estimated time: estimate ${minutes} min; elapsed ${(elapsedMs / 60_000).toFixed(2)} min of in_progress wall time. An overrun means the plan or the approach is wrong; treat it as a serious problem, not a note to acknowledge and move past.
+function overtimeBody(title: string, phase: string, minutes: number, elapsedMs: number): string {
+	return `SERIOUS: todo item "${escapeXmlText(title)}" has exceeded its estimated time: estimate ${minutes} min; elapsed ${(elapsedMs / 60_000).toFixed(2)} min of in_progress wall time. An overrun means the plan or the approach is wrong; treat it as a serious problem, not a note to acknowledge and move past.
 Before any other step on this task, investigate why it overran:
 1. Check the evidence: what this item's work actually took, what is still missing, and what blocked, slowed or expanded it.
 2. Decide whether the approach must change. If the cause is unclear, discuss it with a subagent; if you are a subagent, raise it with your parent.
 3. In your next message, state the cause you found and the approach you will take from here.
 This item's estimate is closed: ESTIMATE on it is rejected. If the work needs more time, add the remaining work as new items with PHASE ${escapeXmlText(JSON.stringify(phase))} and ADD, each within the per-item limit, then continue with them.
-Do not lower the expected outcome, acceptance criteria or quality, and do not reset the list or remove and recreate this item to escape the overrun.
-</system-reminder>`;
+Do not lower the expected outcome, acceptance criteria or quality, and do not reset the list or remove and recreate this item to escape the overrun.`;
 }
 
 export function registerOvertime(pi: ExtensionAPI): void {
+	const deltas = createDeltaStream("omp-todo-more/overtime");
 	let active: DeadlineBinding | undefined;
 	// Queued notification intents last until the branch records their message.
 	const pending = new Set<string>();
@@ -91,16 +91,18 @@ export function registerOvertime(pi: ExtensionAPI): void {
 							continue;
 						}
 						const details = { budgetId: time.budgetId, title: item.title, estimatedMinutes: time.minutes, elapsedMs };
-						pending.add(time.budgetId);
 						try {
+							// The reminder body and its `<system-reminder source=…>` rendering come from the
+							// shared delta stream; the notice still goes out as its own visible message with
+							// its `details`, which is the durable overtime record `branch.ts` folds.
+							const notice = deltas.atPrompt(binding.ctx, {
+								kind: "text",
+								body: overtimeBody(item.title, phase.name, time.minutes, elapsedMs),
+							});
+							if (notice === undefined) continue;
+							pending.add(time.budgetId);
 							pi.sendMessage(
-								{
-									customType: OVERTIME_TYPE,
-									content: overtimeText(item.title, phase.name, time.minutes, elapsedMs),
-									display: true,
-									details,
-									attribution: "agent",
-								},
+								{ ...notice.message, customType: OVERTIME_TYPE, display: true, details },
 								binding.ctx.isIdle() ? { triggerTurn: false } : { deliverAs: "aside" },
 							);
 						} catch (error) {
@@ -180,5 +182,6 @@ export function registerOvertime(pi: ExtensionAPI): void {
 	});
 	pi.on("turn_end", () => changed());
 	pi.on("agent_end", () => changed());
+	pi.on("turn_start", () => deltas.turnStarted());
 	pi.on("session_shutdown", stop);
 }
