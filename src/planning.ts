@@ -1,14 +1,16 @@
 /**
- * Enforce a non-empty todo before `edit`, and annotate every real user
- * message with the todo snapshot: an empty list asks for a todo only for
- * work (changes to files, config, git or external state), never for
- * discussion or investigation. `context` rewrites only provider input, not the
- * stored human text. Keeping the user role also lets OMP deliver mid-response
- * steering live.
+ * Enforce a non-empty todo before `edit`, and deliver the todo snapshot
+ * reminder: an empty list asks for a todo only for work (changes to files,
+ * config, git or external state), never for discussion or investigation. The
+ * reminder is one delta (`omomp-shared/context-delta.ts`) of source
+ * `omp-todo-more/planning`: delivered at `before_agent_start` and after the
+ * tool batch as `additionalContext`, re-sent only when the wanted snapshot
+ * changes.
  */
-import type { AgentMessage, AgentTool } from "@oh-my-pi/pi-agent-core";
+import type { AgentTool } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { branchFacts, contextBranch, isHumanMessage, stateForHumanMessage } from "./branch.ts";
+import { createDeltaStream, type Delta } from "../omomp-shared/context-delta.ts";
+import { branchFacts, contextBranch } from "./branch.ts";
 import { errorText } from "./errors.ts";
 import { sessionOf } from "./session.ts";
 import { type TodoMoreState, toSnapshot } from "./state.ts";
@@ -16,16 +18,14 @@ import { type TodoMoreState, toSnapshot } from "./state.ts";
 const INIT_REMINDER =
 	'Todo is empty. Work phase (this request changes files, config, git or external state): before the first change, initialize with one complete Todo document: INIT "objective" "measure" "doneWhen", PHASE "name", and ADD "title" "explanation" minutes for every step, between *** Begin Todo and *** End Todo. Estimate each item yourself in positive integer minutes; no fractions or defaults. edit is blocked until the complete document succeeds and the list has items. Non-work phase (discussion, investigation, explanation, answering questions): no todo.';
 
-function reminder(state: TodoMoreState): string {
+function reminderBody(state: TodoMoreState): string {
 	switch (state.kind) {
 		case "empty":
-			return `<system-reminder source="todo-more">\n${INIT_REMINDER}\n</system-reminder>`;
+			return INIT_REMINDER;
 		case "list":
 			return [
-				'<system-reminder source="todo-more">',
 				'Discussion, investigation, explanation and questions add no items. Check that this todo matches your current plan and latest user instructions. Update the goal, steps, explanations, estimates and statuses wherever they disagree; do not omit or narrow work. The complete snapshot includes completed, abandoned and blocked items. A null goal/explanation is missing; time.kind missing requires ESTIMATE "title" minutes with your own positive integer estimate. Batch related changes in one Todo document. Budgets are forecasts, not permission to reduce scope or quality. You do not need VIEW to check this snapshot.',
 				JSON.stringify(toSnapshot(state), null, 2),
-				"</system-reminder>",
 			].join("\n");
 		default: {
 			const unreachable: never = state;
@@ -35,6 +35,11 @@ function reminder(state: TodoMoreState): string {
 }
 
 export function registerPlanning(pi: ExtensionAPI): void {
+	const deltas = createDeltaStream("omp-todo-more/planning");
+	const current = (ctx: ExtensionContext): Delta => ({
+		kind: "text",
+		body: reminderBody(branchFacts(contextBranch(ctx)).state),
+	});
 	// Installation identity, not todo state. A refreshed registry may supply a
 	// new edit tool; each tool instance receives exactly one execution wrapper.
 	const guarded = new WeakSet<AgentTool>();
@@ -67,27 +72,28 @@ export function registerPlanning(pi: ExtensionAPI): void {
 		}
 	};
 	pi.on("session_start", (_event, ctx) => installSafely(ctx));
-	pi.on("before_agent_start", (_event, ctx) => installSafely(ctx));
+	pi.on("before_agent_start", (event, ctx) => {
+		// OMP discards the result of a revive.
+		if (event.reason === "revive") return;
+		installSafely(ctx);
+		try {
+			return deltas.atPrompt(ctx, current(ctx));
+		} catch (error) {
+			pi.logger.warn("todo-more user-message reminder failed", { error: errorText(error) });
+		}
+	});
 	pi.on("tool_call", (event, ctx) => {
 		// tool_call prepares the whole batch before anything executes. Install
 		// here after registry refreshes, but read todo only inside execute so
 		// init/edit and rm/edit in one batch see their actual execution state.
 		if (event.toolName === "edit") installSafely(ctx);
 	});
-
-	pi.on("context", (event, ctx) => {
+	pi.on("tool_result", (_event, ctx) => {
 		try {
-			const facts = branchFacts(contextBranch(ctx));
-			const messages = event.messages.map((message): AgentMessage => {
-				if (!isHumanMessage(message)) return message;
-				const note = { type: "text" as const, text: reminder(stateForHumanMessage(facts, message)) };
-				const content = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
-				return { ...message, content: [...content, note] };
-			});
-			return { messages };
+			return deltas.afterTools(ctx, current(ctx));
 		} catch (error) {
-			pi.logger.warn("todo-more user-message reminder failed", { error: errorText(error) });
-			return undefined;
+			pi.logger.warn("todo-more todo snapshot reminder failed", { error: errorText(error) });
 		}
 	});
+	pi.on("turn_start", () => deltas.turnStarted());
 }

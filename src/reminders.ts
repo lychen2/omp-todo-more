@@ -61,9 +61,9 @@ import type { Api, AssistantMessage, Model, TextContent, ToolChoice } from "@oh-
 import { type AgentSession, type ExtensionAPI, type ExtensionContext, type MessageRenderer, Text, z } from "@oh-my-pi/pi-coding-agent";
 import { type NativeNode, node, span } from "@oh-my-pi/pi-tui";
 import { escapeXmlText } from "@oh-my-pi/pi-utils";
+import { tr } from "../omomp-shared/i18n.ts";
 import { type BranchFacts, branchFacts, contextBranch } from "./branch.ts";
 import { errorText } from "./errors.ts";
-import { tr } from "./i18n.ts";
 import { type CutOffWait, cutOffWait, quotaDeadline, quotaNoticeLine } from "./quota-wait.ts";
 import { sessionOf } from "./session.ts";
 import { DEFAULT_SETTINGS, readSettings, silenceNativeTodoAutomation, type TodoMoreSettings } from "./settings.ts";

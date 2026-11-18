@@ -75,7 +75,8 @@ function fixture(initial?: TodoMoreSnapshot): Fixture {
 	};
 }
 
-function projected(snapshot: TodoMoreSnapshot): HostTodoPhase[] {
+/** The repo's own result-details projection: local statuses and the blocker survive. */
+function projectedDetails(snapshot: TodoMoreSnapshot): TodoMoreDetails["phases"] {
 	return snapshot.phases.map((phase) => ({
 		name: phase.name,
 		tasks: phase.items.map((item) => ({
@@ -83,6 +84,14 @@ function projected(snapshot: TodoMoreSnapshot): HostTodoPhase[] {
 			status: item.status,
 			...(item.blocker === undefined ? {} : { blocker: item.blocker }),
 		})),
+	}));
+}
+
+/** The host's projection (`session.setTodoPhases`): the host's status union has no `blocked`, which maps to `pending`. */
+function projected(snapshot: TodoMoreSnapshot): HostTodoPhase[] {
+	return projectedDetails(snapshot).map((phase) => ({
+		name: phase.name,
+		tasks: phase.tasks.map((task) => ({ content: task.content, status: task.status === "blocked" ? "pending" : task.status })),
 	}));
 }
 
@@ -96,7 +105,7 @@ function expectSaved(
 	expect(result.isError).not.toBe(true);
 	expect(harness.snapshot()).toEqual(expected);
 	expect(result.details?.more).toEqual(expected);
-	expect(result.details?.phases).toEqual(projected(expected));
+	expect(result.details?.phases).toEqual(projectedDetails(expected));
 	expect(harness.snapshots()).toHaveLength(previousSnapshots + 1);
 	const entry = harness.snapshots().at(-1);
 	if (entry?.type !== "custom") throw new Error("Expected a persisted todo snapshot");
@@ -115,7 +124,7 @@ async function expectRejected(
 	const result = await invoke();
 	expect(result.isError).toBe(true);
 	expect(result.details?.more).toEqual(before);
-	expect(result.details?.phases).toEqual(projected(before));
+	expect(result.details?.phases).toEqual(projectedDetails(before));
 	expect(result.details).not.toHaveProperty("changes");
 	expect(harness.snapshot()).toEqual(before);
 	expect(harness.session.sessionManager.getBranch()).toEqual(entries);
@@ -571,7 +580,7 @@ describe("atomic Todo document execution", () => {
 		expect(result.details?.op).toBe("view");
 		expect(result.details).not.toHaveProperty("changes");
 		expect(result.details?.more).toEqual(initial);
-		expect(result.details?.phases).toEqual(projected(initial));
+		expect(result.details?.phases).toEqual(projectedDetails(initial));
 		expect(harness.snapshot()).toEqual(initial);
 		expect(harness.session.sessionManager.getBranch()).toEqual(before);
 		expect(harness.snapshots()).toHaveLength(1);

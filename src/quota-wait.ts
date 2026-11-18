@@ -11,7 +11,7 @@
  */
 import { type AssistantMessage, calculateRateLimitBackoffMs, isUsageLimitOutcome, parseRateLimitReason } from "@oh-my-pi/pi-ai";
 import { extractRetryHint } from "@oh-my-pi/pi-utils";
-import { tr } from "./i18n.ts";
+import { tr } from "../omomp-shared/i18n.ts";
 
 /** Margin after the account reset before the reminder is sent. */
 export const QUOTA_RESET_MARGIN_MS = 60_000;

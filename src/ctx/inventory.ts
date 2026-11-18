@@ -15,7 +15,7 @@ import type { SessionEntry } from "@oh-my-pi/pi-coding-agent/session/session-ent
 import type { GlobMatch, GrepMatch } from "@oh-my-pi/pi-natives";
 import { FileType, GrepOutputMode, glob, grep } from "@oh-my-pi/pi-natives";
 import { isRecord } from "@oh-my-pi/pi-utils";
-import { tr } from "../i18n.ts";
+import { tr } from "../../omomp-shared/i18n.ts";
 import { ctxDocTopics } from "../topics.ts";
 import { parseTaskLogEvent, type TaskLogGoal, taskLogGoalLines, taskLogGoalSchema, taskLogPath } from "./task-log.ts";
 

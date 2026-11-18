@@ -302,8 +302,22 @@ export function joinNative(phases: NativePhases, base: TodoMoreState, at: number
 	return stateOf(base.kind === "list" ? base.goal : { kind: "missing" }, joined);
 }
 
-/** The host's view of the list: what `session.setTodoPhases`, the HUD and native tool-result consumers take. */
+/** The repo's own result-details phase: the local status set (including `blocked`) survives here; the host's native `TodoPhase` cannot model it. */
+export type TodoMoreDetailPhase = { name: string; tasks: { content: string; status: TodoStatus; blocker?: string }[] };
+
+/** The host's view of the list: what `session.setTodoPhases`, the HUD and native tool-result consumers take. `blocked` maps to `pending` — the host's native status union no longer models it. */
 export function hostPhases(state: TodoMoreState): HostTodoPhase[] {
+	return detailPhases(state).map((phase) => ({
+		name: phase.name,
+		tasks: phase.tasks.map((task) => ({
+			content: task.content,
+			status: task.status === "blocked" ? "pending" : task.status,
+		})),
+	}));
+}
+
+/** The repo's own phase projection for tool-result details: local statuses and the blocker survive. */
+export function detailPhases(state: TodoMoreState): TodoMoreDetailPhase[] {
 	switch (state.kind) {
 		case "empty":
 			return [];
