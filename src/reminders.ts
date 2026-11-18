@@ -412,7 +412,7 @@ function byPhase(open: readonly OpenItem[]): { readonly name: string; readonly i
 	return groups;
 }
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/session/todo-tracker.ts#TodoTracker.checkCompletion
+// @upstream adapted @oh-my-pi/pi-coding-agent@18.22.0 src/session/todo-tracker.ts#TodoTracker.checkCompletion
 function reminderText(state: ListState, open: readonly OpenItem[], attempt: number, max: number): string {
 	const todoList = byPhase(open)
 		.map(
@@ -433,6 +433,9 @@ function reminderText(state: ListState, open: readonly OpenItem[], attempt: numb
 /**
  * The native guards after the user-force label, in native order. `count` is the
  * reminders already sent in this budget; the caller applies the outcome to it.
+ * Native's reset when `todo` is not an active tool is left out: in a subagent the
+ * host drops `todo` from every active-set write and todo-more adds it back before
+ * each model call, so that guard would reset subagent reminders.
  */
 function checkCompletion(
 	session: AgentSession,
@@ -451,11 +454,7 @@ function checkCompletion(
 	const open = actionableItems(state);
 	if (open.length === 0) return RESET;
 	if (isAwaitingUserAnswer(message)) return SILENT;
-	// Host API drift: `hasPendingAsyncWork` is gone; the session's async-job snapshot
-	// (running jobs and queued/in-flight deliveries) answers the same "a wake can still land".
-	const asyncJobs = session.getAsyncJobSnapshot();
-	if (asyncJobs !== null && (asyncJobs.running.length > 0 || asyncJobs.delivery.pendingJobIds.length > 0 || asyncJobs.delivery.delivering))
-		return SILENT;
+	if (session.wakeSources !== undefined) return SILENT;
 	const attempt = count + 1;
 	return {
 		kind: "remind",

@@ -283,7 +283,7 @@ function stubSession(over: { goalMode?: boolean; toolNames?: string[] }): AgentS
 		getGoalModeState: () => (over.goalMode === true ? { enabled: true, mode: "active", goal: {} } : undefined),
 		getActiveToolNames: () => over.toolNames ?? [],
 		getToolByName: () => undefined,
-		hasPendingAsyncWork: () => false,
+		wakeSources: undefined,
 	} as unknown as AgentSession;
 }
 

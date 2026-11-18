@@ -7,6 +7,10 @@
 - Updated the shared copy of `i18n.ts` to oh-my-omp/shared@33dbe00.
 - The plan-check reminder and the overtime warning are delivered through the shared context-delta stream: reminders carry `source="omp-todo-more/<id>"`, a snapshot that matches the context is not re-sent, and the plan-check reminder now rides the hidden reminder channel at `before_agent_start` and the tool-result `additionalContext` instead of being appended to every stored user message. The shared `i18n`, `todo-read` and `tern plugin` files are consumed as copies, and CI runs `omomp-check`.
 
+### Fixed
+
+- Stop reminders work again on omp 18.21 and later: they were silently skipped on every stop because the check for pending background work called `hasPendingAsyncWork()`, which the host removed, and now reads the host's `wakeSources` instead ([#53](https://github.com/oh-my-omp/omp-todo-more/issues/53))
+
 ## [0.2.0] - 2026-11-18
 
 ### Added
