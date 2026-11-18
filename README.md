@@ -160,7 +160,10 @@ additions cannot inherit it. Use INIT to create the next list.
 The current session branch is the only authority. A successful changing batch
 appends one complete `mouriya.omp.todo-more` snapshot and updates the host
 TodoTracker projection once. Results retain `todoMore: true`, `details.more`,
-native-compatible phases, storage and completion transitions.
+`details.phases` as the host projection, storage and completion transitions.
+The host projection uses the host's four statuses and carries no blocker: a
+blocked item is `pending` there. `details.more` keeps the plugin's five statuses
+and blockers.
 `details.op` identifies the operation or `"batch"`; `details.operations`
 lists operation names. Only successful mutations return `details.changes`,
 the ordered structured operations actually applied, including ADD budgets,

@@ -215,12 +215,13 @@ class SchedulerFixture {
 
 	/** A host write outside the tool (`/todo`, RPC `set_todos`), or a native `todo` result with its message event. */
 	async native(status: TodoStatus, source: "edit" | "result"): Promise<void> {
-		const phases = [{ name: "Delivery", tasks: [{ content: title, status }] }];
 		if (source === "edit") {
-			this.bound.commitTodoPhases(phases);
+			// A host write carries the host's four statuses: a blocked item reads as pending there.
+			this.bound.commitTodoPhases([{ name: "Delivery", tasks: [{ content: title, status: status === "blocked" ? "pending" : status }] }]);
 			await Promise.resolve();
 			return;
 		}
+		const phases = [{ name: "Delivery", tasks: [{ content: title, status }] }];
 		const message = {
 			role: "toolResult" as const,
 			toolName: "todo",
@@ -303,14 +304,18 @@ describe("overtime deadline scheduling", () => {
 		});
 	});
 
-	for (const source of ["edit", "result"] as const) {
+	// A host write pauses as pending (it has no blocked state); a native result read from the branch keeps blocked.
+	for (const [source, paused] of [
+		["edit", "pending"],
+		["result", "blocked"],
+	] as const) {
 		test(`native ${source} pauses and resumes the remaining budget, then completion leaves no timer`, async () => {
 			await withScheduler(async (fixture) => {
 				await fixture.append(estimatedState());
 				await fixture.clock.advanceTo(epoch + 20_000);
 				const beforePause = fixture.clock.captureNext();
 				await fixture.native("blocked", source);
-				expect(itemOf(fixture.manager).status).toBe("blocked");
+				expect(itemOf(fixture.manager).status).toBe(paused);
 				expect(estimateOf(fixture.manager)).toMatchObject({ elapsedMs: 20_000, runningSince: null });
 				expect(fixture.clock.deadlines).toEqual([]);
 				await fixture.clock.advanceTo(epoch + 100_000);

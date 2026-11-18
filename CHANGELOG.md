@@ -8,6 +8,7 @@
 
 ### Changed
 
+- Reported a blocked todo item as `pending` in the host projection (`details.phases`, TodoTracker and HUD) and stopped carrying its blocker there, while `details.more` keeps the plugin's five statuses and blockers
 - A todo item's budget is closed once it receives its overtime warning: an `ESTIMATE` that would change it rejects the document, and the error names the item's phase so the remaining work is added as new items with `PHASE` and `ADD`. Estimates revised before the warning behave as before.
 - The overtime warning now marks the overrun as a serious problem and requires the agent, before any other step on the task, to check the evidence for the cause, decide whether the approach must change, and state the cause and next approach in its next message; it says the estimate is closed and names the phase for the new items. It no longer says the warning is no reason to stop or that the estimate is only a forecast.
 

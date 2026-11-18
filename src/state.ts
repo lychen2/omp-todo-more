@@ -18,7 +18,7 @@
  */
 import { type SessionEntry, z } from "@oh-my-pi/pi-coding-agent";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "@oh-my-pi/pi-coding-agent/tools/todo";
-import type { TodoPhase as HostTodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
+import type { TodoPhase as HostTodoPhase, TodoStatus as HostTodoStatus } from "@oh-my-pi/pi-tui/tools/todo";
 
 export const TODO_MORE_ENTRY_TYPE = "mouriya.omp.todo-more";
 
@@ -302,6 +302,26 @@ export function joinNative(phases: NativePhases, base: TodoMoreState, at: number
 	return stateOf(base.kind === "list" ? base.goal : { kind: "missing" }, joined);
 }
 
+/**
+ * The host's status for an item: the host has four statuses and no blocked state, so a blocked item
+ * reads as pending there. The plugin keeps `blocked` and its blocker in its own records.
+ */
+function hostStatus(status: TodoStatus): HostTodoStatus {
+	switch (status) {
+		case "pending":
+		case "blocked":
+			return "pending";
+		case "in_progress":
+		case "completed":
+		case "abandoned":
+			return status;
+		default: {
+			const unreachable: never = status;
+			throw new Error(`Unexpected todo status: ${String(unreachable)}`);
+		}
+	}
+}
+
 /** The host's view of the list: what `session.setTodoPhases`, the HUD and native tool-result consumers take. */
 export function hostPhases(state: TodoMoreState): HostTodoPhase[] {
 	switch (state.kind) {
@@ -310,11 +330,7 @@ export function hostPhases(state: TodoMoreState): HostTodoPhase[] {
 		case "list":
 			return state.phases.map((phase) => ({
 				name: phase.name,
-				tasks: phase.items.map((item) =>
-					item.blocker === undefined
-						? { content: item.title, status: item.status }
-						: { content: item.title, status: item.status, blocker: item.blocker },
-				),
+				tasks: phase.items.map((item) => ({ content: item.title, status: hostStatus(item.status) })),
 			}));
 		default: {
 			const unreachable: never = state;

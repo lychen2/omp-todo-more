@@ -96,7 +96,7 @@ function resultFor(more: TodoMoreSnapshot): Parameters<typeof describeTodoResult
 			storage: "session",
 			phases: more.phases.map((phase) => ({
 				name: phase.name,
-				tasks: phase.items.map((item) => ({ content: item.title, status: item.status })),
+				tasks: phase.items.map((item) => ({ content: item.title, status: item.status === "blocked" ? "pending" : item.status })),
 			})),
 			more,
 		},
