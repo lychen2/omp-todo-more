@@ -14,6 +14,7 @@ import {
 	stateOf,
 	TODO_MORE_ENTRY_TYPE,
 	type TodoItem,
+	type TodoMoreDetailPhase,
 	type TodoMoreState,
 	type TodoStatus,
 	toSnapshot,
@@ -23,7 +24,8 @@ const epoch = Date.parse("2026-10-15T12:00:00.000Z");
 const title = "Deliver the full task";
 type Estimate = Extract<ItemTime, { kind: "estimated" }>;
 type Warning = Extract<SessionEntry, { type: "custom_message" }>;
-type Projection = AgentSession["setTodoPhases"];
+/** The repo's own phase shape: the fake stands in for host writes that may still carry `blocked` (old hosts and native records). */
+type TodoPhases = TodoMoreDetailPhase[];
 type Handler = (event: ExtensionEvent, ctx: ExtensionContext) => unknown;
 
 function estimatedState(minutes = 1, budgetId = "original-budget", runningSince = epoch, elapsedMs = 0): TodoMoreState {
@@ -138,23 +140,28 @@ class SchedulerFixture {
 	readonly errors: string[] = [];
 	readonly handlers = new Map<string, Handler[]>();
 	manager = SessionManager.inMemory("/tmp/overtime-regression");
-	projection: Projection = () => {};
+	projection: (phases: TodoPhases) => void = () => {};
 
 	// Only these documented host surfaces are consumed by the extension/commit boundary.
 	// The actual SessionManager is never replaced by a mock or a synthetic branch array.
+	readonly hostWrite = {
+		setTodoPhases: (phases: TodoPhases) => this.projection(phases),
+		// As the host's: project, then record the edit (`AgentSession.commitTodoPhases`).
+		commitTodoPhases: (phases: TodoPhases) => {
+			this.projection(phases);
+			this.manager.appendCustomEntry(USER_TODO_EDIT_CUSTOM_TYPE, { phases });
+		},
+	};
+
+	// One object behind both views: the overtime observer wraps `commitTodoPhases` on the
+	// registered session, and native writes must pass through that wrapper.
+	readonly #host = { sessionManager: this.manager, ...this.hostWrite };
+
 	get session(): AgentSession {
-		const manager = this.manager;
-		const session = {
-			sessionManager: manager,
-			setTodoPhases: (phases: Parameters<Projection>[0]) => this.projection(phases),
-			// As the host's: project, then record the edit (`AgentSession.commitTodoPhases`).
-			commitTodoPhases: (phases: Parameters<Projection>[0]) => {
-				this.projection(phases);
-				manager.appendCustomEntry(USER_TODO_EDIT_CUSTOM_TYPE, { phases });
-			},
-		};
+		// Follow rebinds (`fixture.manager = …`): the session object always serves the live manager.
+		this.#host.sessionManager = this.manager;
 		// The extension serves only in-process sessions; the fixture stands in for one.
-		return Object.setPrototypeOf(session, AgentSession.prototype) as AgentSession;
+		return Object.setPrototypeOf(this.#host, AgentSession.prototype) as AgentSession;
 	}
 
 	bound = this.session;
@@ -217,7 +224,7 @@ class SchedulerFixture {
 	async native(status: TodoStatus, source: "edit" | "result"): Promise<void> {
 		const phases = [{ name: "Delivery", tasks: [{ content: title, status }] }];
 		if (source === "edit") {
-			this.bound.commitTodoPhases(phases);
+			this.#host.commitTodoPhases(phases);
 			await Promise.resolve();
 			return;
 		}

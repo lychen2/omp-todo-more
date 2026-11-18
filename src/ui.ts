@@ -17,10 +17,10 @@ import {
 	type TUI,
 } from "@oh-my-pi/pi-tui";
 import { CustomEditor } from "@oh-my-pi/pi-tui/prompt/custom-editor";
+import { tr } from "../omomp-shared/i18n.ts";
 import { branchFacts } from "./branch.ts";
 import { saveTodoEdit, type TodoEdit } from "./edit.ts";
 import { errorText } from "./errors.ts";
-import { tr } from "./i18n.ts";
 import { describeSnapshot, describeTodoHud } from "./native.ts";
 import { sessionOf } from "./session.ts";
 import { type ItemTime, type TodoGoal, type TodoMoreState, type TodoStatus, toSnapshot } from "./state.ts";

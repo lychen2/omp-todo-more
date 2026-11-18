@@ -1,7 +1,7 @@
 import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import { type ToolRenderResultOptions, z } from "@oh-my-pi/pi-coding-agent";
 import { type Component, replaceTabs, Text, type Theme, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@oh-my-pi/pi-tui";
-import { language, tr } from "./i18n.ts";
+import { language, tr } from "../omomp-shared/i18n.ts";
 import { formatTodoParseError, previewTodo, type TodoCommand, type TodoPreview, type TodoTarget } from "./protocol.ts";
 import {
 	commitScopeSchema,
