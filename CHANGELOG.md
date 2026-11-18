@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop reminders work again on omp 18.21 and later: they were silently skipped on every stop because the check for pending background work called `hasPendingAsyncWork()`, which the host removed, and now reads the host's `wakeSources` instead ([#53](https://github.com/oh-my-omp/omp-todo-more/issues/53))
+
 ## [0.2.0] - 2026-11-18
 
 ### Added
