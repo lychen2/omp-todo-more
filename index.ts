@@ -30,8 +30,10 @@
  *
  * planning.ts wraps the registered `edit` execution so an empty list blocks
  * it (installed on session_start, before_agent_start and edit tool_call), and
- * appends a complete plan-check reminder to each real user message (`context`,
- * request-only; agent-attributed and synthetic messages are excluded).
+ * delivers a complete plan-check reminder through the shared context-delta
+ * stream (source `omp-todo-more/planning`): a hidden reminder at
+ * before_agent_start and the todo snapshot as `additionalContext` after the
+ * tool batch, re-sent only when the list changes.
  * Adds rich native tool descriptions, a live native progress widget, the
  * session-bound `/todo-more` editor, and synchronous `omp-todo-more:read` review
  * requests. The factory registers tools, hooks and UI synchronously, awaits Tern owner-CLI asset initialization, then subscribes the review API.
@@ -68,10 +70,10 @@ import type { AgentTool, AgentToolUpdateCallback } from "@oh-my-pi/pi-agent-core
 import type { AgentSession, ExtensionAPI, ExtensionContext, ToolDefinition, ToolInfo } from "@oh-my-pi/pi-coding-agent";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { logger } from "@oh-my-pi/pi-utils";
+import { tr } from "./omomp-shared/i18n.ts";
 import { registerCtx } from "./src/ctx/index.ts";
 import { registerCtxTasklog } from "./src/ctx/tasklog.ts";
 import { errorText } from "./src/errors.ts";
-import { tr } from "./src/i18n.ts";
 import { describeTodoCall, describeTodoResult } from "./src/native.ts";
 import { registerOvertime } from "./src/overtime.ts";
 import { registerPlanning } from "./src/planning.ts";

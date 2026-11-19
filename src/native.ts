@@ -1,6 +1,6 @@
 import type { ToolDefinition } from "@oh-my-pi/pi-coding-agent";
 import { type NativeChild, type NativeNode, node, stableKey } from "@oh-my-pi/pi-tui";
-import { tr } from "./i18n.ts";
+import { tr } from "../omomp-shared/i18n.ts";
 import type { parametersSchema } from "./protocol.ts";
 import {
 	callPreviewLines,

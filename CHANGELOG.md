@@ -2,13 +2,29 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Reported a blocked todo item as `pending` in the host projection (`details.phases`, TodoTracker and HUD) and stopped carrying its blocker there, while `details.more` keeps the plugin's five statuses and blockers
+
+## [0.2.1] - 2026-11-19
+
+### Changed
+
+- Updated the shared copy of `i18n.ts` to oh-my-omp/shared@33dbe00.
+- The plan-check reminder and the overtime warning are delivered through the shared context-delta stream: reminders carry `source="omp-todo-more/<id>"`, a snapshot that matches the context is not re-sent, and the plan-check reminder now rides the hidden reminder channel at `before_agent_start` and the tool-result `additionalContext` instead of being appended to every stored user message. The shared `i18n`, `todo-read` and `tern plugin` files are consumed as copies, and CI runs `omomp-check`.
+
+### Fixed
+
+- Stop reminders work again on omp 18.21 and later: they were silently skipped on every stop because the check for pending background work called `hasPendingAsyncWork()`, which the host removed, and now reads the host's `wakeSources` instead ([#53](https://github.com/oh-my-omp/omp-todo-more/issues/53))
+
+## [0.2.0] - 2026-11-18
+
 ### Added
 
 - Plugin setting `leafMaxMinutes` (default `60`, 1–1440) caps the estimate of one todo item: an `ADD` or `ESTIMATE` above it rejects the whole document with an error asking to split the work into several items. The `todo` tool reads the setting on every call.
 
 ### Changed
 
-- Reported a blocked todo item as `pending` in the host projection (`details.phases`, TodoTracker and HUD) and stopped carrying its blocker there, while `details.more` keeps the plugin's five statuses and blockers
 - A todo item's budget is closed once it receives its overtime warning: an `ESTIMATE` that would change it rejects the document, and the error names the item's phase so the remaining work is added as new items with `PHASE` and `ADD`. Estimates revised before the warning behave as before.
 - The overtime warning now marks the overrun as a serious problem and requires the agent, before any other step on the task, to check the evidence for the cause, decide whether the approach must change, and state the cause and next approach in its next message; it says the estimate is closed and names the phase for the new items. It no longer says the warning is no reason to stop or that the estimate is only a forecast.
 

@@ -11,8 +11,11 @@
  * Paths, each driven through the checkout's own entry point; a round appends
  * one entry and fires one trigger, timed together (the steady state of a live
  * session; a checkout may react inside the append itself):
- *   context  — `registerPlanning` `context` handler over the branch's last 20
- *              human messages;
+ *   planning — the `registerPlanning` reminder trigger this checkout
+ *              registers: the `tool_result` handler that computes the todo
+ *              snapshot delta after a tool batch, or, in checkouts before the
+ *              delta, the `context` handler over the branch's last 20 human
+ *              messages;
  *   todo     — `runTodo` with an `EXPLAIN` that rewrites the current item;
  *   hud      — `TodoHud.describe()`;
  *   overtime — `registerOvertime` reschedule woken by a todo write: the
@@ -123,14 +126,18 @@ const humans = (manager: SessionManager): AgentMessage[] =>
 		.slice(-20)
 		.map((entry) => (entry as Extract<SessionEntry, { type: "message" }>).message as AgentMessage);
 
-async function contextPath(n: number): Promise<Sample> {
+async function planningPath(n: number): Promise<Sample> {
 	const manager = freshBranch(n);
 	const handlers = new Map<string, Handler[]>();
 	modules.registerPlanning(stubPi(handlers, manager));
-	const handler = handlers.get("context")?.[0];
-	if (handler === undefined) throw new Error("no context handler");
 	const ctx = { sessionManager: manager, agent: { id: "bench", kind: "main" } };
-	return measure(manager, () => handler({ type: "context", messages: humans(manager) }, ctx));
+	const afterTools = handlers.get("tool_result")?.[0];
+	if (afterTools !== undefined) {
+		return measure(manager, () => afterTools({ type: "tool_result", toolName: "read", isError: false }, ctx));
+	}
+	const context = handlers.get("context")?.[0];
+	if (context === undefined) throw new Error("no planning tool_result or context handler");
+	return measure(manager, () => context({ type: "context", messages: humans(manager) }, ctx));
 }
 
 async function todoPath(n: number): Promise<Sample> {
@@ -210,7 +217,7 @@ async function overtimePath(n: number): Promise<Sample> {
 }
 
 const paths: Record<string, (n: number) => Promise<Sample>> = {
-	context: contextPath,
+	planning: planningPath,
 	todo: todoPath,
 	hud: hudPath,
 	overtime: overtimePath,

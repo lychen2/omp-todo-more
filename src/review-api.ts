@@ -1,34 +1,11 @@
 import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import { isTodoReadRequest, TODO_READ_EVENT, type TodoReadCounts, type TodoReadResponse } from "../omomp-shared/todo-read.ts";
 import { branchFacts } from "./branch.ts";
 import { errorText } from "./errors.ts";
 import { sessionOf } from "./session.ts";
-import { actionableItems, type TodoGoal, type TodoMoreState, type TodoStatus } from "./state.ts";
+import { actionableItems, type TodoMoreState, type TodoStatus } from "./state.ts";
 
-/** Public wire projection; never exposes the plugin's domain representation. */
-type TodoMoreReadResponse =
-	| {
-			kind: "ok";
-			goal: TodoGoal | null;
-			openItems: readonly { phase: string; title: string; explanation: string | null }[];
-			/** Items per status over the whole list; all zero for an empty list. */
-			counts: Readonly<Record<TodoStatus, number>>;
-	  }
-	| { kind: "unavailable" };
-type ReadRequest = { agentId: string; reply: (value: unknown) => void };
-
-function isReadRequest(value: unknown): value is ReadRequest {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"agentId" in value &&
-		typeof value.agentId === "string" &&
-		value.agentId.trim().length > 0 &&
-		"reply" in value &&
-		typeof value.reply === "function"
-	);
-}
-
-function statusCounts(state: TodoMoreState): Record<TodoStatus, number> {
+function statusCounts(state: TodoMoreState): TodoReadCounts {
 	const counts: Record<TodoStatus, number> = { pending: 0, in_progress: 0, completed: 0, abandoned: 0, blocked: 0 };
 	if (state.kind === "list") for (const phase of state.phases) for (const item of phase.items) counts[item.status]++;
 	return counts;
@@ -36,9 +13,9 @@ function statusCounts(state: TodoMoreState): Record<TodoStatus, number> {
 
 /** Synchronous request/reply only: branch reads, no IO, cache, timers or writes. */
 export function registerReviewApi(pi: ExtensionAPI): void {
-	const unsubscribe = pi.events.on("omp-todo-more:read", (request) => {
-		if (!isReadRequest(request)) return;
-		let response: TodoMoreReadResponse;
+	const unsubscribe = pi.events.on(TODO_READ_EVENT, (request) => {
+		if (!isTodoReadRequest(request)) return;
+		let response: TodoReadResponse;
 		try {
 			const session = sessionOf(request.agentId);
 			if (session === undefined) response = { kind: "unavailable" };

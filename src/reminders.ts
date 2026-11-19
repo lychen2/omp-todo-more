@@ -61,9 +61,9 @@ import type { Api, AssistantMessage, Model, TextContent, ToolChoice } from "@oh-
 import { type AgentSession, type ExtensionAPI, type ExtensionContext, type MessageRenderer, Text, z } from "@oh-my-pi/pi-coding-agent";
 import { type NativeNode, node, span } from "@oh-my-pi/pi-tui";
 import { escapeXmlText } from "@oh-my-pi/pi-utils";
+import { tr } from "../omomp-shared/i18n.ts";
 import { type BranchFacts, branchFacts, contextBranch } from "./branch.ts";
 import { errorText } from "./errors.ts";
-import { tr } from "./i18n.ts";
 import { type CutOffWait, cutOffWait, quotaDeadline, quotaNoticeLine } from "./quota-wait.ts";
 import { sessionOf } from "./session.ts";
 import { DEFAULT_SETTINGS, readSettings, silenceNativeTodoAutomation, type TodoMoreSettings } from "./settings.ts";
@@ -412,7 +412,7 @@ function byPhase(open: readonly OpenItem[]): { readonly name: string; readonly i
 	return groups;
 }
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/session/todo-tracker.ts#TodoTracker.checkCompletion
+// @upstream adapted @oh-my-pi/pi-coding-agent@18.22.0 src/session/todo-tracker.ts#TodoTracker.checkCompletion
 function reminderText(state: ListState, open: readonly OpenItem[], attempt: number, max: number): string {
 	const todoList = byPhase(open)
 		.map(
@@ -433,6 +433,9 @@ function reminderText(state: ListState, open: readonly OpenItem[], attempt: numb
 /**
  * The native guards after the user-force label, in native order. `count` is the
  * reminders already sent in this budget; the caller applies the outcome to it.
+ * Native's reset when `todo` is not an active tool is left out: in a subagent the
+ * host drops `todo` from every active-set write and todo-more adds it back before
+ * each model call, so that guard would reset subagent reminders.
  */
 function checkCompletion(
 	session: AgentSession,
