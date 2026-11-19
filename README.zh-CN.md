@@ -15,7 +15,7 @@
   - 父级工作树豁免 — 功能：豁免工作树即其父级工作树的子代理（经 `ctx.agent.parentId` 找到）的提交义务与脏树拒绝，因为该工作树由父级整合。时机：`task:*` 子代理执行每个 `DONE` 时。实例：`index.ts` 的 `parentCwdOf`，工作树共享比较见 `src/git.ts`。
 - **会话分支上的列表状态**
   - 快照条目与宿主投影 — 功能：每次接受的变更向会话分支追加一条完整 `mouriya.omp.todo-more` 快照并确认被接受，再把宿主投影（标题为内容、四种状态、blocked 视为 pending）推入 `TodoTracker`，使宿主 HUD、`/todo`、再水合与持久化继续工作。时机：每次被接受的 `todo` 调用与 GUI 保存之后。实例：`src/commit.ts` 的 `appendCustomEntry(TODO_MORE_ENTRY_TYPE, toSnapshot(next))` 与 `session.setTodoPhases(hostPhases(next))`。
-  - 分支折叠 — 功能：每次读取都在分支条目上向前折叠——按标题并入宿主的 `user_todo_edit` 记录（`/todo`、RPC `set_todos`、子代理自动完成），把新标题标记为缺少说明与时钟——并为每个 session manager 保留一个增量累加器。时机：工具、提醒、超时、ctx 或 UI 每次读取列表时。实例：`src/branch.ts` 的 `foldEntry`/`branchFacts`。
+  - 分支折叠 — 功能：每次读取都在分支条目上向前折叠——按标题并入宿主的 `user_todo_edit` 记录（`/todo`、RPC `set_todos`、子代理自动完成），把新标题标记为缺少说明与时钟——并为每个 session manager 保留一个增量累加器。时机：工具、提醒、超时或 UI 每次读取列表时。实例：`src/branch.ts` 的 `foldEntry`/`branchFacts`。
   - 时间跟踪 — 功能：跟踪每个条目 `in_progress` 墙钟时间并排除 `ask` 等待，为每个 estimate 记录预算 id，使超时警告在重新估算后仍锁定该预算身份。时机：每次分支折叠与每次超时检查时。实例：`src/state.ts` 的 `elapsedTime`/`transitionTime`，等待从 `tool_execution_start` 记录折叠，见 `src/branch.ts`。
 - **编辑型子代理中的 `todo` 恢复**
   - 子代理 `todo` 恢复 — 功能：为启用工具中含 `edit` 但不含 `todo` 的子代理会话补回 `todo`，按规范顺序（内置工具按注册表顺序，其余按码点排序）写整份启用集使 fork 保持 prompt 缓存；工具受限会话经 `refreshRpcHostTools` 安装。时机：子代理会话每次模型调用之前，通过在其首个 `before_agent_start` 上挂接的 before-model-call 钩子。实例：`index.ts` 的 `guardSubagent`/`restoreTodo`/`canonicalToolOrder`。
@@ -35,11 +35,6 @@
 - **超时警告**
   - 超时截止定时器 — 功能：保持一个指向最近活动条目估算截止时间的定时器，在会话/分支事件、`todo`/`ask` 结果、`commitTodoPhases` 写入与轮次/运行结束时重新武装，`ask` 打开期间暂停。时机：从 `session_start`/`session_switch`/`session_branch`/`session_tree` 与每个改变列表的事件调度。实例：`src/overtime.ts` 的 `registerOvertime`/`reschedule`。
   - 超时警告投递 — 功能：到点时按预算 id 发送一条 `mouriya.omp.todo-more.overtime` 消息——运行中作为 aside、空闲时作为不开轮次的可见消息——包在 `<system-reminder source="omp-todo-more/overtime">` delta 中，记录下的消息即分支折叠的持久警告事实。时机：被跟踪条目的 in_progress 墙钟时间超过其估算时。实例：`src/overtime.ts` 的正文 `SERIOUS: todo item "…" has exceeded its estimated time: estimate 60 min; elapsed 62.31 min of in_progress wall time.`，经 `createDeltaStream("omp-todo-more/overtime")` 发送。
-- **上下文回想（`ctx`）**
-  - `ctx` 工具 — 功能：注册只读 `ctx` 工具（`loadMode: "essential"`，op 为 `list`/`show`，另有 `id`、`all`），构建本会话及其 `task` 子代理的实时目录——状态、handoff 摘要、todo 计数与时间线——合并自 agent 注册表、转录、sidecar 与任务日志。时机：模型调用 `ctx` 时。实例：`ctx({ op: "list" })` 或 `ctx({ op: "show", id: "b3" })`，`src/ctx/inventory.ts` 的 `contextParams`/`registerCtxTool`。
-  - `xd://ctx/recall` — 功能：提供覆盖列表、handoff 展示、任务时间线与转录回退的 `recall` doc topic。时机：模型读取 `xd://ctx` 或 `xd://ctx/recall` 时。实例：`src/topics.ts` 的 `ctxDocTopics` 加载 `src/topics/ctx-recall.md`。
-  - 压缩后名册 — 功能：把压缩时刻的 `task` 子代理名册（每行一条 `ctx list` 行）放在主会话此后每个请求里压缩摘要的正后方，按压缩 id 持久化为一条 `todo-more.post-compact-ctx` 条目使其逐字节一致并可跨 resume 存活。时机：`context` 钩子，仅主会话，每次压缩后的首个请求。实例：`src/ctx/post-compact-hint.ts` 的 `registerPostCompactHint`，条目类型见 `src/branch.ts`。
-  - 任务日志 — 功能：为每次成功的 `todo`/`goal` 变更向 `local://task-log/<agent-id>.md` 追加一条带时间戳的行（op、明细与 `todo-more set` 目标记录），即 `ctx` 回放出计数与时间线的文件。时机：主、子会话中 `toolName` 为 `todo` 或 `goal` 且 `isError: false` 的 `tool_result`。实例：`src/ctx/tasklog.ts` 的 `registerCtxTasklog` 经 `src/ctx/task-log.ts` 的 `taskLogPath` 写入 `- 2026-11-20 09:41:03 todo done: "title"`。
 - **原生 UI 与 Tern 面板**
   - `todo-more.hud` 小组件 — 功能：在编辑器下方挂载实时 `TodoHud`，跟随被查看的会话——pill、进度及打开富 popover 的 disclosure——并在会话、分支与树跳转时重装。时机：`session_start`/`session_switch`/`session_branch`/`session_tree`。实例：`src/ui.ts` 的 `installHud`/widget key `todo-more.hud`。
   - `/todo` 输入改写 — 功能：在原生前端把交互式 `/todo` 与 `/todo edit` 输入改写为 `/todo-more`，其余 `/todo` 子命令留给宿主。时机：原生渲染生效时匹配 `/^\/todo(?:[\s:]+(.*))?$/` 的 `input` 事件。实例：`src/ui.ts` 的 `input` 钩子返回 `{ text: "/todo-more" }`。

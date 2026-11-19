@@ -6,10 +6,9 @@
 
 - Reported a blocked todo item as `pending` in the host projection (`details.phases`, TodoTracker and HUD) and stopped carrying its blocker there, while `details.more` keeps the plugin's five statuses and blockers
 
-### Fixed
+### Removed
 
-- The post-compaction `<post-compact-ctx>` block carries only the session's subagents as they stood at the compaction, dated, with running and idle ones always listed and finished ones only when they reported a result. It used to repeat the whole compaction summary as the main session's handoff, the todo goal and task timeline that the plan reminder re-delivers after compaction anyway, a row for the main session itself, and a row for every finished subagent including those that produced nothing. With no qualifying subagent nothing is attached. Blocks recorded before this change are rendered again once on the next request.
-- `ctx list` result summaries show the first line of a subagent's result without heading markers, decode the escapes of a summary cut off mid-string (no more literal `\n`), and truncate at a word boundary.
+- Removed the `ctx` tool with its `xd://ctx/recall` topic, the task log that `todo` and `goal` calls appended to `local://task-log/<agent-id>.md`, and the `<post-compact-ctx>` block placed after the compaction summary. Requests no longer carry the `ctx` tool or that block, and `todo`/`goal` calls write no task log. Existing `todo-more.post-compact-ctx` session entries and task log files stay where they are and are no longer read ([#67](https://github.com/oh-my-omp/omp-todo-more/issues/67))
 
 ## [0.2.1] - 2026-11-19
 

@@ -45,7 +45,6 @@ export function todo(...lines: string[]): ScriptedTurn {
 
 const say = (text: string): ScriptedTurn => ({ text });
 const child = (turn: ScriptedTurn): ScriptedTurn => ({ ...turn, child: true });
-const ctxTool = (args: Record<string, unknown>): ScriptedTurn => call("ctx", { i: "inspect contexts", ...args });
 
 const INIT1 = todo('INIT "Ship" "tests" "merged"', 'PHASE "P"', 'ADD "Task A" "work" 10');
 const INIT2 = todo(
@@ -641,7 +640,7 @@ export const SCENARIOS: readonly Scenario[] = [
 		name: "compact",
 		todo: { eager: "preferred" },
 		config: { compaction: { keepRecentTokens: 1 } },
-		expect: ["todo-more.post-compact-ctx", "compaction"],
+		expect: ["compaction"],
 		steps: [
 			{
 				kind: "prompt",
@@ -679,35 +678,6 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	{
-		name: "ctx-tool",
-		expect: ["# Contexts", "# Context", "todo init:", "todo-more set:", "Unknown context", "requires an id"],
-		steps: [
-			{
-				kind: "prompt",
-				text: "Plan, delegate, inspect contexts.",
-				turns: [
-					INIT1,
-					call("task", {
-						context: "Probe.",
-						tasks: [{ agent: "task", name: "Sidekick", task: "Say ok.", solutionSpace: "one answer" }],
-					}),
-					say("Child done."),
-					ctxTool({ op: "list" }),
-					ctxTool({ op: "list", all: true }),
-					ctxTool({ op: "list", id: "Sidekick" }),
-					ctxTool({ op: "show", id: "Sidekick" }),
-					ctxTool({ op: "show", id: "Main" }),
-					ctxTool({ op: "show" }),
-					ctxTool({ op: "show", id: "nope" }),
-					ctxTool({ op: "bogus" }),
-					say("Inspected."),
-					say("Reminder turn."),
-				],
-			},
-			{ kind: "prompt", text: "Finish.", turns: [todo("DONE ALL"), ctxTool({ op: "show", id: "Main" }), say("Done.")] },
-		],
-	},
 	{
 		name: "slash-ui",
 		expect: ["Todo More editor requires an interactive UI"],
