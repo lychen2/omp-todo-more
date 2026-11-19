@@ -1594,14 +1594,35 @@ async function hydrateData(inventory: Inventory, nodes: readonly ContextDraft[])
 	return data;
 }
 
-async function hydrateShow(inventory: Inventory, target: ContextDraft): Promise<ContextNode> {
+/**
+ * How `ctx show` renders the current session's handoff (its latest
+ * compaction summary): `render` writes it out; `inContext` points at the
+ * compaction summary the request already carries, for callers that place
+ * the rendering next to that summary.
+ */
+export type CurrentHandoff = "render" | "inContext";
+
+function currentHandoffText(inventory: Inventory, mode: CurrentHandoff): string {
+	switch (mode) {
+		case "render":
+			return inventory.currentCompactionHandoff;
+		case "inContext":
+			return inventory.currentCompactionHandoff === "(none)" ? "(none)" : "(the compaction summary above)";
+		default: {
+			const unreachable: never = mode;
+			return unreachable;
+		}
+	}
+}
+
+async function hydrateShow(inventory: Inventory, target: ContextDraft, currentHandoff: CurrentHandoff): Promise<ContextNode> {
 	const data = new Map<string, NodeData>();
 	data.set(inventory.current.id, currentNodeData(inventory));
 	const taskLog = await taskLogFor(inventory.localRoot, target.id, inventory.taskLogs);
 	if (target.id === inventory.current.id) {
 		data.set(target.id, {
 			summary: data.get(target.id)!.summary,
-			handoff: inventory.currentCompactionHandoff,
+			handoff: currentHandoffText(inventory, currentHandoff),
 			tasks: taskLog.counts,
 			timeline: taskLog.timeline,
 			goal: taskLog.goal,
@@ -1674,11 +1695,15 @@ export async function renderCtxListText(
  * goal and per-task timeline without a follow-up tool call. Returns `undefined`
  * when the id is not in the inventory.
  */
-export async function renderCtxShowText(inventory: Inventory, id?: string): Promise<{ text: string; id: string } | undefined> {
+export async function renderCtxShowText(
+	inventory: Inventory,
+	id: string | undefined,
+	currentHandoff: CurrentHandoff,
+): Promise<{ text: string; id: string } | undefined> {
 	const requestedId = id?.trim() || inventory.current.id;
 	const target = findDraft(inventory.root, requestedId);
 	if (!target) return undefined;
-	const root = await hydrateShow(inventory, target);
+	const root = await hydrateShow(inventory, target, currentHandoff);
 	const shownNode = flattenNode(root).find((entry) => entry.node.id === target.id)!.node;
 	return { text: renderShow(shownNode, parentChain(root, target.id)), id: target.id };
 }
@@ -1715,7 +1740,7 @@ export function registerCtxTool(pi: ExtensionAPI): void {
 					};
 				}
 			} else {
-				const result = await renderCtxShowText(inventory, requestedId);
+				const result = await renderCtxShowText(inventory, requestedId, "render");
 				if (result) {
 					return {
 						content: [{ type: "text", text: result.text }],

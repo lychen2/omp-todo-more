@@ -6,6 +6,10 @@
 
 - Reported a blocked todo item as `pending` in the host projection (`details.phases`, TodoTracker and HUD) and stopped carrying its blocker there, while `details.more` keeps the plugin's five statuses and blockers
 
+### Fixed
+
+- The post-compaction `<post-compact-ctx>` block no longer repeats the compaction summary: its `ctx show` of the main session rendered the session's handoff, which is that summary, right after the summary itself, so every request after a compaction carried it twice. The block now points at the summary above it, and snapshots recorded before this fix are rendered once more on the next request.
+
 ## [0.2.1] - 2026-11-19
 
 ### Changed

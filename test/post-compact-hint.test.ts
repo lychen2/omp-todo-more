@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
+import { POST_COMPACT_SNAPSHOT_VERSION } from "../src/branch.ts";
 import {
 	appendCompactionWithSnapshot,
 	type Fixture,
@@ -54,14 +55,18 @@ async function step(fx: Fixture, random: () => number): Promise<void> {
 		fx.raw.appendCompaction("summary", undefined, fx.raw.getLeafId() ?? "", 100_000);
 	} else if (roll < 0.12) {
 		// Snapshot entry: sometimes for the latest compaction, sometimes a
-		// foreign or malformed one — the combine rules must match exactly.
+		// foreign, unversioned (pre-version) or malformed one — the combine
+		// rules must match exactly.
 		const latest = fx.raw.getBranchView().findLast((entry) => entry.type === "compaction");
+		const pick = random();
 		const data =
-			latest !== undefined && random() < 0.7
-				? { compactionId: latest.id, text: `${SNAPSHOT_TEXT}${Math.floor(random() * 1000)}` }
-				: random() < 0.5
-					? { compactionId: "foreign-id", text: "other" }
-					: { wrong: true };
+			latest !== undefined && pick < 0.6
+				? { version: POST_COMPACT_SNAPSHOT_VERSION, compactionId: latest.id, text: `${SNAPSHOT_TEXT}${Math.floor(random() * 1000)}` }
+				: latest !== undefined && pick < 0.75
+					? { compactionId: latest.id, text: "unversioned" }
+					: random() < 0.5
+						? { version: POST_COMPACT_SNAPSHOT_VERSION, compactionId: "foreign-id", text: "other" }
+						: { wrong: true };
 		fx.raw.appendCustomEntry(SNAPSHOT_ENTRY_TYPE, data);
 	} else if (roll < 0.15) {
 		// Branch off mid-history: navigation forces re-derivation.

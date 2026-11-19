@@ -10,7 +10,9 @@
  * the model to call them costs round trips and is easy to skip; this
  * plugin builds one ctx inventory and renders it through the tool's own
  * helpers (`renderCtxListText`, `renderCtxShowText`), so list and show
- * describe the same snapshot.
+ * describe the same snapshot. The main session's handoff is the
+ * compaction summary the payload follows, so `ctx show` points at it
+ * instead of repeating it.
  *
  * Delivery. The payload is context, not a message: sending it as a user
  * message starts a model turn of its own (idle) or lands after the final
@@ -28,7 +30,7 @@
 
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { branchFacts, contextBranch, POST_COMPACT_SNAPSHOT_TYPE } from "../branch.ts";
+import { branchFacts, contextBranch, POST_COMPACT_SNAPSHOT_TYPE, POST_COMPACT_SNAPSHOT_VERSION } from "../branch.ts";
 import { errorText } from "../errors.ts";
 import { buildInventory, renderCtxListText, renderCtxShowText } from "./inventory.ts";
 
@@ -68,7 +70,9 @@ async function renderSnapshot(ctx: ExtensionContext): Promise<{ text: string; to
 	const inventory = await buildInventory(ctx);
 	const list = await renderCtxListText(inventory);
 	if (!list) return undefined;
-	const show = await renderCtxShowText(inventory);
+	// The payload sits right after the compaction summary, which is the
+	// current session's handoff: rendering it again would send it twice.
+	const show = await renderCtxShowText(inventory, undefined, "inContext");
 	const text = buildMessage({ listText: list.text, total: list.total, showText: show?.text, showId: show?.id });
 	return { text, total: list.total };
 }
@@ -101,7 +105,11 @@ export function registerPostCompactHint(pi: ExtensionAPI): void {
 				case "unrendered": {
 					const snapshot = await renderSnapshot(ctx);
 					if (snapshot === undefined) return undefined;
-					pi.appendEntry(POST_COMPACT_SNAPSHOT_TYPE, { compactionId: boundary.compactionId, text: snapshot.text });
+					pi.appendEntry(POST_COMPACT_SNAPSHOT_TYPE, {
+						version: POST_COMPACT_SNAPSHOT_VERSION,
+						compactionId: boundary.compactionId,
+						text: snapshot.text,
+					});
 					pi.logger.info("Post-compaction ctx attached", { compactionId: boundary.compactionId, total: snapshot.total });
 					return { messages: withPayload(event.messages, snapshot.text) };
 				}

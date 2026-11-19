@@ -46,7 +46,17 @@ export type HumanMark =
 
 /** Custom session entry holding one compaction's rendered `ctx` snapshot (ctx/post-compact-hint.ts); never sent to the model itself. */
 export const POST_COMPACT_SNAPSHOT_TYPE = "todo-more.post-compact-ctx";
-const postCompactSnapshotSchema = z.object({ compactionId: z.string(), text: z.string() });
+/**
+ * Rendering version of a snapshot entry. Entries without it repeated the
+ * compaction summary inside the payload; they do not count as rendered, so
+ * the next request renders the compaction once more.
+ */
+export const POST_COMPACT_SNAPSHOT_VERSION = 2;
+const postCompactSnapshotSchema = z.object({
+	version: z.literal(POST_COMPACT_SNAPSHOT_VERSION),
+	compactionId: z.string(),
+	text: z.string(),
+});
 
 /** The latest compaction on the branch and the `ctx` snapshot recorded for it, if any. */
 export type CompactionBoundary =

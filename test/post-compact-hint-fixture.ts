@@ -18,13 +18,14 @@ import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@oh-my-pi/pi-coding-agent";
 import { z } from "@oh-my-pi/pi-coding-agent";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
+import { POST_COMPACT_SNAPSHOT_VERSION } from "../src/branch.ts";
 import { registerPostCompactHint } from "../src/ctx/post-compact-hint.ts";
 
 export const SNAPSHOT_ENTRY_TYPE = "todo-more.post-compact-ctx";
 export const CONTEXT_MESSAGE_TYPE = "todo-more.post-compact-ctx";
 export const RICH_SNAPSHOT_TYPE = "mouriya.omp.todo-more";
 
-const snapshotSchema = z.object({ compactionId: z.string(), text: z.string() });
+const snapshotSchema = z.object({ version: z.literal(POST_COMPACT_SNAPSHOT_VERSION), compactionId: z.string(), text: z.string() });
 
 type BoundaryState =
 	| { readonly kind: "none" }
@@ -261,5 +262,5 @@ export function appendCompactionWithSnapshot(
 	text = "<post-compact-ctx>\nrendered snapshot\n</post-compact-ctx>",
 ): void {
 	const compactionId = manager.appendCompaction("summary", undefined, manager.getLeafId() ?? "", 100_000);
-	manager.appendCustomEntry(SNAPSHOT_ENTRY_TYPE, { compactionId, text });
+	manager.appendCustomEntry(SNAPSHOT_ENTRY_TYPE, { version: POST_COMPACT_SNAPSHOT_VERSION, compactionId, text });
 }
