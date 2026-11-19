@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
-import type { TodoCompletionTransition } from "@oh-my-pi/pi-tui/tools/todo";
+import type { TodoPhase as HostTodoPhase, TodoCompletionTransition } from "@oh-my-pi/pi-tui/tools/todo";
 import { branchFacts } from "./branch.ts";
 import { commitTodoState, type TodoSession } from "./commit.ts";
 import { commitCompletion, sharedWorktreeRoot, worktreeState } from "./git.ts";
@@ -10,17 +10,16 @@ import {
 	type CommitRecord,
 	commitRecordText,
 	commitScopeText,
-	detailPhases,
 	type Explanation,
 	estimatedMinutesSchema,
 	explanationText,
 	type GoalState,
 	goalLines,
+	hostPhases,
 	type ItemTime,
 	stateOf,
 	TODO_MORE_RESULT_MARK,
 	type TodoGoal,
-	type TodoMoreDetailPhase,
 	type TodoMoreSnapshot,
 	type TodoMoreState,
 	type TodoStatus,
@@ -84,7 +83,7 @@ export type TodoMoreDetails = {
 	operations?: Op[];
 	/** Accepted logical operations, in application order; absent on VIEW and rejected calls. */
 	changes?: Params[];
-	phases: TodoMoreDetailPhase[];
+	phases: HostTodoPhase[];
 	storage: "session" | "memory";
 	completedTasks?: TodoCompletionTransition[];
 	[TODO_MORE_RESULT_MARK]: true;
@@ -504,7 +503,7 @@ function result(
 	extra: { op?: TodoMoreDetails["op"]; operations?: Op[]; changes?: Params[]; completedTasks?: TodoCompletionTransition[]; isError?: true },
 ): AgentToolResult<TodoMoreDetails> {
 	const details: TodoMoreDetails = {
-		phases: detailPhases(state),
+		phases: hostPhases(state),
 		storage: storageOf(session),
 		[TODO_MORE_RESULT_MARK]: true,
 		more: toSnapshot(state),

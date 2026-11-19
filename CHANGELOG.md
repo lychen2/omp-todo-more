@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Reported a blocked todo item as `pending` in the host projection (`details.phases`, TodoTracker and HUD) and stopped carrying its blocker there, while `details.more` keeps the plugin's five statuses and blockers
+
 ## [0.2.1] - 2026-11-19
 
 ### Changed

@@ -103,7 +103,7 @@ ANSI 与 native 卡片的解析诊断在渲染时使用当前界面语言；返�
 
 空列表不携带 goal。导入列表缺 goal 时，必须先写 GOAL。RM ALL 或删除最后一项后，working copy 丢弃 goal，后续追加不能继承；创建下一份列表应使用 INIT。
 
-当前会话分支是唯一权威。改变状态的成功批次只追加一条完整 `mouriya.omp.todo-more` snapshot，并更新一次宿主 TodoTracker 投影。结果保留 `todoMore: true`、`details.more`、原生兼容 phases、storage 和完成 transitions。`details.op` 为操作名或 `"batch"`，`details.operations` 列出操作名；仅成功 mutation 返回 `details.changes`，记录按顺序实际应用的结构化操作，包括 ADD 的预算、ESTIMATE 值以及每个 `DONE` 的提交子句。VIEW 和失败不产生 accepted changes。
+当前会话分支是唯一权威。改变状态的成功批次只追加一条完整 `mouriya.omp.todo-more` snapshot，并更新一次宿主 TodoTracker 投影。结果保留 `todoMore: true`、`details.more`、作为宿主投影的 `details.phases`、storage 和完成 transitions。宿主投影只用宿主的四种状态且不含 blocker：blocked 项在那里是 `pending`。`details.more` 保留插件的五种状态与 blocker。`details.op` 为操作名或 `"batch"`，`details.operations` 列出操作名；仅成功 mutation 返回 `details.changes`，记录按顺序实际应用的结构化操作，包括 ADD 的预算、ESTIMATE 值以及每个 `DONE` 的提交子句。VIEW 和失败不产生 accepted changes。
 
 reader 按标题联结宿主 `user_todo_edit` 与旧原生工具结果：已知标题保留 explanation 和计时元数据，新标题缺少两者；原生空 snapshot 中断此前 goal、explanation 和计时元数据的继承。自有 marked 工具结果不重复作为状态记录读取。现有 reader 忽略格式无效的记录；本次迁移不更改这项兼容语义。
 

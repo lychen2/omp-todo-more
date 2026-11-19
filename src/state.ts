@@ -18,7 +18,7 @@
  */
 import { type SessionEntry, z } from "@oh-my-pi/pi-coding-agent";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "@oh-my-pi/pi-coding-agent/tools/todo";
-import type { TodoPhase as HostTodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
+import type { TodoPhase as HostTodoPhase, TodoStatus as HostTodoStatus } from "@oh-my-pi/pi-tui/tools/todo";
 
 export const TODO_MORE_ENTRY_TYPE = "mouriya.omp.todo-more";
 
@@ -302,33 +302,35 @@ export function joinNative(phases: NativePhases, base: TodoMoreState, at: number
 	return stateOf(base.kind === "list" ? base.goal : { kind: "missing" }, joined);
 }
 
-/** The repo's own result-details phase: the local status set (including `blocked`) survives here; the host's native `TodoPhase` cannot model it. */
-export type TodoMoreDetailPhase = { name: string; tasks: { content: string; status: TodoStatus; blocker?: string }[] };
-
-/** The host's view of the list: what `session.setTodoPhases`, the HUD and native tool-result consumers take. `blocked` maps to `pending` — the host's native status union no longer models it. */
-export function hostPhases(state: TodoMoreState): HostTodoPhase[] {
-	return detailPhases(state).map((phase) => ({
-		name: phase.name,
-		tasks: phase.tasks.map((task) => ({
-			content: task.content,
-			status: task.status === "blocked" ? "pending" : task.status,
-		})),
-	}));
+/**
+ * The host's status for an item: the host has four statuses and no blocked state, so a blocked item
+ * reads as pending there. The plugin keeps `blocked` and its blocker in its own records.
+ */
+function hostStatus(status: TodoStatus): HostTodoStatus {
+	switch (status) {
+		case "pending":
+		case "blocked":
+			return "pending";
+		case "in_progress":
+		case "completed":
+		case "abandoned":
+			return status;
+		default: {
+			const unreachable: never = status;
+			throw new Error(`Unexpected todo status: ${String(unreachable)}`);
+		}
+	}
 }
 
-/** The repo's own phase projection for tool-result details: local statuses and the blocker survive. */
-export function detailPhases(state: TodoMoreState): TodoMoreDetailPhase[] {
+/** The host's view of the list: what `session.setTodoPhases`, the HUD and native tool-result consumers take. */
+export function hostPhases(state: TodoMoreState): HostTodoPhase[] {
 	switch (state.kind) {
 		case "empty":
 			return [];
 		case "list":
 			return state.phases.map((phase) => ({
 				name: phase.name,
-				tasks: phase.items.map((item) =>
-					item.blocker === undefined
-						? { content: item.title, status: item.status }
-						: { content: item.title, status: item.status, blocker: item.blocker },
-				),
+				tasks: phase.items.map((item) => ({ content: item.title, status: hostStatus(item.status) })),
 			}));
 		default: {
 			const unreachable: never = state;

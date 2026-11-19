@@ -12,7 +12,7 @@ import {
 	todoGoalSchema,
 	todoMoreSnapshotSchema,
 } from "./state.ts";
-import { OPS, RESULT_OPS, type TodoMoreDetails } from "./tool.ts";
+import { OPS, RESULT_OPS } from "./tool.ts";
 
 const itemParamSchema = z.object({
 	title: z.string(),
@@ -49,6 +49,12 @@ export const detailsSchema = z.object({
 	todoMore: z.literal(true),
 	more: todoMoreSnapshotSchema,
 });
+
+/**
+ * A result's details as read back from the branch. The plugin reads `more` and never the host copy in `phases`, which older
+ * results may hold with `blocked` and `blocker`; `detailsSchema` accepts that shape, so the reader type leaves `phases` out.
+ */
+export type ReadTodoDetails = Omit<z.infer<typeof detailsSchema>, "phases">;
 type Item = TodoMoreSnapshot["phases"][number]["items"][number];
 
 function goalUiLines(goal: TodoMoreSnapshot["goal"]): string[] {
@@ -286,7 +292,7 @@ export function compactRemovedLabel(title: string): string {
 }
 
 /** Full view for INIT, VIEW and expanded cards; incremental CRUD shows only the items/goal changed in this call. */
-export function resultView(details: TodoMoreDetails, args: unknown, expanded: boolean): ResultView {
+export function resultView(details: ReadTodoDetails, args: unknown, expanded: boolean): ResultView {
 	if (expanded) return { kind: "full" };
 	const call = parseCall(args);
 	if (
@@ -528,7 +534,7 @@ export function renderTodoResult(
 			.trim();
 		return framedCard(theme, statusLine(theme, theme.styledSymbol("status.error", "error"), ""), () => [theme.fg("error", detail)], true);
 	}
-	const details: TodoMoreDetails = parsed.data;
+	const details: ReadTodoDetails = parsed.data;
 	const phases = details.more.phases.filter((phase) => phase.items.length > 0);
 	const completed = details.completedTasks ?? [];
 	const completionKeys = new Set(completed.map((item) => `${item.phase}\u0000${item.content}`));

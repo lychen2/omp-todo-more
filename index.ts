@@ -43,9 +43,10 @@
  * `mouriya.omp.todo-more`; host writers that bypass the tool (`/todo`, RPC
  * `set_todos`, finished-subagent auto-complete) append `user_todo_edit`, which the reader
  * joins by title, marking new titles as lacking an explanation. Every mutation
- * also pushes the host projection (title as content, status, blocker) into the
- * session's TodoTracker, and the result details carry the same projection, so
- * the host HUD, `/todo`, branch rehydration and eval persistence keep working.
+ * also pushes the host projection (title as content and the host's four statuses,
+ * with blocked read as pending) into the session's TodoTracker, and the result
+ * details carry the same projection, so the host HUD, `/todo`, branch
+ * rehydration and eval persistence keep working.
  *
  * OMP drops `todo` from subagents that are not prewalk-armed: the executor
  * strips it at spawn and filters it out of every extension-driven active-tool

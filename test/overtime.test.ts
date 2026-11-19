@@ -14,7 +14,6 @@ import {
 	stateOf,
 	TODO_MORE_ENTRY_TYPE,
 	type TodoItem,
-	type TodoMoreDetailPhase,
 	type TodoMoreState,
 	type TodoStatus,
 	toSnapshot,
@@ -24,8 +23,7 @@ const epoch = Date.parse("2026-10-15T12:00:00.000Z");
 const title = "Deliver the full task";
 type Estimate = Extract<ItemTime, { kind: "estimated" }>;
 type Warning = Extract<SessionEntry, { type: "custom_message" }>;
-/** The repo's own phase shape: the fake stands in for host writes that may still carry `blocked` (old hosts and native records). */
-type TodoPhases = TodoMoreDetailPhase[];
+type Projection = AgentSession["setTodoPhases"];
 type Handler = (event: ExtensionEvent, ctx: ExtensionContext) => unknown;
 
 function estimatedState(minutes = 1, budgetId = "original-budget", runningSince = epoch, elapsedMs = 0): TodoMoreState {
@@ -140,28 +138,23 @@ class SchedulerFixture {
 	readonly errors: string[] = [];
 	readonly handlers = new Map<string, Handler[]>();
 	manager = SessionManager.inMemory("/tmp/overtime-regression");
-	projection: (phases: TodoPhases) => void = () => {};
+	projection: Projection = () => {};
 
 	// Only these documented host surfaces are consumed by the extension/commit boundary.
 	// The actual SessionManager is never replaced by a mock or a synthetic branch array.
-	readonly hostWrite = {
-		setTodoPhases: (phases: TodoPhases) => this.projection(phases),
-		// As the host's: project, then record the edit (`AgentSession.commitTodoPhases`).
-		commitTodoPhases: (phases: TodoPhases) => {
-			this.projection(phases);
-			this.manager.appendCustomEntry(USER_TODO_EDIT_CUSTOM_TYPE, { phases });
-		},
-	};
-
-	// One object behind both views: the overtime observer wraps `commitTodoPhases` on the
-	// registered session, and native writes must pass through that wrapper.
-	readonly #host = { sessionManager: this.manager, ...this.hostWrite };
-
 	get session(): AgentSession {
-		// Follow rebinds (`fixture.manager = …`): the session object always serves the live manager.
-		this.#host.sessionManager = this.manager;
+		const manager = this.manager;
+		const session = {
+			sessionManager: manager,
+			setTodoPhases: (phases: Parameters<Projection>[0]) => this.projection(phases),
+			// As the host's: project, then record the edit (`AgentSession.commitTodoPhases`).
+			commitTodoPhases: (phases: Parameters<Projection>[0]) => {
+				this.projection(phases);
+				manager.appendCustomEntry(USER_TODO_EDIT_CUSTOM_TYPE, { phases });
+			},
+		};
 		// The extension serves only in-process sessions; the fixture stands in for one.
-		return Object.setPrototypeOf(this.#host, AgentSession.prototype) as AgentSession;
+		return Object.setPrototypeOf(session, AgentSession.prototype) as AgentSession;
 	}
 
 	bound = this.session;
@@ -222,12 +215,13 @@ class SchedulerFixture {
 
 	/** A host write outside the tool (`/todo`, RPC `set_todos`), or a native `todo` result with its message event. */
 	async native(status: TodoStatus, source: "edit" | "result"): Promise<void> {
-		const phases = [{ name: "Delivery", tasks: [{ content: title, status }] }];
 		if (source === "edit") {
-			this.#host.commitTodoPhases(phases);
+			// A host write carries the host's four statuses: a blocked item reads as pending there.
+			this.bound.commitTodoPhases([{ name: "Delivery", tasks: [{ content: title, status: status === "blocked" ? "pending" : status }] }]);
 			await Promise.resolve();
 			return;
 		}
+		const phases = [{ name: "Delivery", tasks: [{ content: title, status }] }];
 		const message = {
 			role: "toolResult" as const,
 			toolName: "todo",
@@ -310,14 +304,18 @@ describe("overtime deadline scheduling", () => {
 		});
 	});
 
-	for (const source of ["edit", "result"] as const) {
+	// A host write pauses as pending (it has no blocked state); a native result read from the branch keeps blocked.
+	for (const [source, paused] of [
+		["edit", "pending"],
+		["result", "blocked"],
+	] as const) {
 		test(`native ${source} pauses and resumes the remaining budget, then completion leaves no timer`, async () => {
 			await withScheduler(async (fixture) => {
 				await fixture.append(estimatedState());
 				await fixture.clock.advanceTo(epoch + 20_000);
 				const beforePause = fixture.clock.captureNext();
 				await fixture.native("blocked", source);
-				expect(itemOf(fixture.manager).status).toBe("blocked");
+				expect(itemOf(fixture.manager).status).toBe(paused);
 				expect(estimateOf(fixture.manager)).toMatchObject({ elapsedMs: 20_000, runningSince: null });
 				expect(fixture.clock.deadlines).toEqual([]);
 				await fixture.clock.advanceTo(epoch + 100_000);
