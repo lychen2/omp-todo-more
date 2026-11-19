@@ -3,8 +3,6 @@ import type { AgentSession, ExtensionAPI, ExtensionContext, ToolDefinition, Tool
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 import { logger } from "@oh-my-pi/pi-utils";
 import { tr } from "./omomp-shared/i18n.ts";
-import { registerCtx } from "./src/ctx/index.ts";
-import { registerCtxTasklog } from "./src/ctx/tasklog.ts";
 import { errorText } from "./src/errors.ts";
 import { describeTodoCall, describeTodoResult } from "./src/native.ts";
 import { registerOvertime } from "./src/overtime.ts";
@@ -129,8 +127,6 @@ export default async function todoMore(pi: ExtensionAPI): Promise<void> {
 	registerOvertime(pi);
 	registerPlanning(pi);
 	registerUi(pi);
-	registerCtx(pi);
-	registerCtxTasklog(pi);
 	await initializeTernPlugin();
 	// Subscribed after the Tern await: a factory rejected by Tern initialization never reaches this line, so its event-bus listener cannot outlive the dropped plugin.
 	registerReviewApi(pi);

@@ -23,20 +23,6 @@ export type HumanMark =
 			readonly state: TodoMoreState;
 	  };
 
-export const POST_COMPACT_SNAPSHOT_TYPE = "todo-more.post-compact-ctx";
-export const POST_COMPACT_SNAPSHOT_VERSION = 3;
-const postCompactSnapshotSchema = z.object({
-	version: z.literal(POST_COMPACT_SNAPSHOT_VERSION),
-	compactionId: z.string(),
-	text: z.string(),
-});
-
-export type CompactionBoundary =
-	| { readonly kind: "none" }
-	| { readonly kind: "unrendered"; readonly compactionId: string }
-	| { readonly kind: "empty"; readonly compactionId: string }
-	| { readonly kind: "rendered"; readonly compactionId: string; readonly text: string };
-
 /** Callers MUST NOT mutate the collections. */
 export type BranchFacts = {
 	readonly state: TodoMoreState;
@@ -45,7 +31,6 @@ export type BranchFacts = {
 	readonly remindersSinceUserMessage: number;
 	readonly modelsSinceCommit: readonly string[];
 	readonly humans: readonly HumanMark[];
-	readonly compaction: CompactionBoundary;
 };
 
 type Accumulator = {
@@ -59,7 +44,6 @@ type Accumulator = {
 	readonly commitShas: Set<string>;
 	modelsSinceCommit: string[];
 	readonly humans: HumanMark[];
-	compaction: CompactionBoundary;
 	facts: BranchFacts | undefined;
 };
 
@@ -75,7 +59,6 @@ function emptyAccumulator(): Accumulator {
 		commitShas: new Set(),
 		modelsSinceCommit: [],
 		humans: [],
-		compaction: { kind: "none" },
 		facts: undefined,
 	};
 }
@@ -175,27 +158,9 @@ function foldMessages(acc: Accumulator, entry: SessionEntry): void {
 	}
 }
 
-function foldCompaction(acc: Accumulator, entry: SessionEntry): void {
-	if (entry.type === "compaction") {
-		acc.compaction = { kind: "unrendered", compactionId: entry.id };
-		return;
-	}
-	if (acc.compaction.kind === "none" || entry.type !== "custom" || entry.customType !== POST_COMPACT_SNAPSHOT_TYPE) return;
-	const parsed = postCompactSnapshotSchema.safeParse(entry.data);
-	if (!parsed.success) return;
-	const compactionId = acc.compaction.compactionId;
-	acc.compaction =
-		parsed.data.compactionId !== compactionId
-			? { kind: "unrendered", compactionId }
-			: parsed.data.text === ""
-				? { kind: "empty", compactionId }
-				: { kind: "rendered", compactionId, text: parsed.data.text };
-}
-
 function foldEntry(acc: Accumulator, entry: SessionEntry): void {
 	const record = recordOf(entry);
 	foldAsk(acc, entry);
-	foldCompaction(acc, entry);
 	foldState(acc, record);
 	foldModels(acc, entry, record);
 	foldMessages(acc, entry);
@@ -222,7 +187,6 @@ function factsOf(acc: Accumulator): BranchFacts {
 		remindersSinceUserMessage: acc.remindersSinceUserMessage,
 		modelsSinceCommit: acc.modelsSinceCommit,
 		humans: acc.humans,
-		compaction: acc.compaction,
 	};
 	return acc.facts;
 }
