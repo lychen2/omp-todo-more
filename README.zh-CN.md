@@ -2,234 +2,53 @@
 
 [English](README.md) | 简体中文
 
-OMP 的富信息 Todo 插件。运行在原生 todo 之上并接管其 `todo` 工具，保留标题寻址、阶段进度、提醒、planning 检查与编辑型子会话行为；列表包含 goal，以及每项 explanation 和模型预估耗时。
-
-## 安装与启用
-
-```sh
-omp install https://github.com/oh-my-omp/omp-todo-more#release
-```
-
-`#release` 是发布通道，每天 GMT+9 02:00 从这里切出发布版本。`main` 是开发集成分支，只在试用未发布改动时从 `main` 安装。
-
-插件入口是包根 `index.ts`，由 `package.json` 的 `omp.extensions` 声明。保持原生 Todo 开启（`todo.enabled`，默认即开启）：原生 tracker 继续供给 HUD、`/todo`、分支恢复与 goal mode，插件的 `todo` 工具遮蔽同名内置工具。
-
-原生 stop reminder、mid-run nudge 与 eager prelude 会与插件自己的重复，因此插件在本进程内以运行时覆盖关闭 `todo.reminders` 与 `todo.eager`，从不写入配置。插件自己的提醒在 `/settings` → Plugins 或 `omp plugin config omp-todo-more` 中配置：
-
-| 设置 | 默认值 | 作用 |
-|---|---|---|
-| `reminders` | `true` | 仍有未完成项时的 stop reminder 与 mid-run nudge。 |
-| `remindersMax` | `3` | 每条停止链放弃前的 stop reminder 次数。 |
-| `eager` | `default` | `preferred` 在首个 prompt 要求建立列表；`always` 还强制调用 `todo`。 |
-| `leafMaxMinutes` | `60` | 单个任务允许的最大预估，取值 1–1440 分钟；`ADD` 或 `ESTIMATE` 超过它时整份文档被拒绝。 |
-
-提醒相关设置在会话开始时与每次 prompt 开始时读取；`todo` 工具每次调用时读取 `leafMaxMinutes`。
-
-不要同时加载旧的本地 `extensions/todo-more/`。已在用 omp-config 的机器，旧模块在独立插件安装并通过运行验证后，由 omp-config 更新器执行受门禁保护的退休。
-
-本地开发使用 `omp plugin link <package-directory>`。运行验证应使用 `/tmp` 下无开发 `node_modules` 的源码副本；类型检查不能证明 OMP 二进制能加载 host imports。
-
-## 发布
-
-合并到 `main` 不是发布，也不改版本号。每个 PR 在 `CHANGELOG.md` 的 `## [Unreleased]` 下写条目；提交用 lgit（`git add`，然后 `uvx --from lgit-cli lgit`），由它为每处用户可见改动写一个顶层列表项。每天 GMT+9 02:00 的发布运行把 `## [Unreleased]` 变成版本段，同步 `package.json` 与 `tern/plugin.toml`，在 `main` 上提交 `chore: release X.Y.Z`，并把 `release` 分支、tag 与 GitHub Release 一起移到该提交。从 `#release` 安装的客户机下次更新时升到新版本。
-
-## 界面语言
-
-Todo More 会本地化面向人的标签、卡片、提醒、编辑器和通知。设置
-`OMOMP_LANG=en` 或 `OMOMP_LANG=zh` 即可选择语言，值会去除首尾空白并忽略大小写；
-未设置或无效时继续回退。环境变量每次解析时重新读取。没有显式语言时，
-取 `LC_ALL`、`LC_MESSAGES`、`LANG` 中第一个去除首尾空白后非空的值；
-以 `zh` 开头（不区分大小写）时使用中文，否则使用英语；全部为空时也使用英语。
-命令名、配置键、协议值、面向模型的 prompt 和返回模型的 tool-result 内容保持不变。
-
-## 工具与状态
-
-模型每次调用发送一份 Todo 文档。支持 custom-tool 的 OMP provider 使用 edit 风格的 Lark grammar；普通 function-tool provider 发送 `{input: "<同一份文档>"}`，两者共用解析和执行路径。
-
-面向模型的详细调用说明以宿主原生工具 topic 随包提供：
-`xd://todo/protocol` 包含文档语法、选择器与完成提交；
-`xd://todo/lifecycle` 包含工作规划、阻塞和时间预算；
-`xd://ctx/recall` 包含上下文列表、handoff、任务时间线和原始 transcript 回退。
-`xd://todo` 与 `xd://ctx` 的工具说明列出相应指针，编辑型子 agent 恢复安装的 Todo 也提供这些 topic。`todo` 的工具说明本身还写明会导致调用被拒或让 `DONE` 提交 git 的规则，不读 topic 也能写出合法文档；topic 负责展开说明。
-
-一次初始化全部阶段和任务：
-
-```text
-*** Begin Todo
-INIT "交付流式 Todo" "真实用户路径通过" "实现与运行验证完成"
-PHASE "实现"
-ADD "实现文档解析" "接受完整文档并保留任务标题的精确身份" 20
-ADD "显示流式预览" "显示意图但不改变已保存状态" 10
-PHASE "验证"
-ADD "验证已安装工具" "检查真实工具与恢复结果" 15
-*** End Todo
-```
-
-后续一次调用合并相关编辑：
-
-```text
-*** Begin Todo
-DONE "实现文档解析"
-START "显示流式预览"
-EXPLAIN "显示流式预览" "检查 ANSI 与 native 调用预览"
-ESTIMATE "显示流式预览" 12
-PHASE "验证"
-ADD "检查任务历史" "确认已接受操作的顺序" 5
-*** End Todo
-```
-
-命令使用大写，每条占一个物理行。字符串按 JSON 规则加引号；`\"`、`\\`、`\n` 保留引号、反斜杠和多行正文，不 trim 完整 title。
-
-|命令|语义|
-|---|---|
-|`INIT "objective" "measure" "doneWhen"`|替换列表与 goal，只能作为第一条且至多一次；紧随的 phase/add 合成一次初始化。|
-|`PHASE "name"` 后跟 `ADD "title" "explanation" minutes`|追加一个或多个显式估时的任务，阶段不存在时创建；每个追加块必须有自己的 phase。|
-|`ESTIMATE "title" minutes`|补齐或修订任务总预算，不重置已耗时间；任务收到超时警告后被拒绝。|
-|`GOAL "objective" "measure" "doneWhen"`|完整替换非空列表的 goal，不改变任务状态或时钟。|
-|`START "title"`|选择当前 active 任务。|
-|`EXPLAIN "title" "explanation"`|替换任务解释。|
-|`DONE target`、`DROP target`、`RM target`|完成、放弃或删除带引号的 title、`PHASE "name"` 或 `ALL`。|
-|`DONE target "message"`、`DONE target "paths" "message"`|完成并提交：全部改动，或仅列出的 pathspec。|
-|`BLOCK target ["reason"]`、`UNBLOCK target`|阻塞或解除阻塞带引号的 title 或 `PHASE "name"`；均不接受 `ALL`。|
-|`VIEW`|只读列表，必须是文档中唯一命令。|
-
-每个 ADD 必须由模型提供正整数分钟估计，不默认、不取整，且不超过 `leafMaxMinutes`。缺失、非法或超限的估计拒绝整份文档。PHASE 只作用于紧随的 ADD，不限定状态命令；空阶段块无效。INIT 的首个 ADD 没有 PHASE 时使用 `"Tasks"`。任务 title 和初始化中的 phase 名必须唯一。`"ALL"` 是标题，裸 `ALL` 才是 selector。
-
-ANSI 与 native 调用卡片将完整命令行和未完成末行显示为未提交预览。卡片是这次调用的 pending 视图：执行结果返回后由结果视图替换它，因此一次调用只画一张卡片，预览不会叠在它所预览的列表之上。生成或取消前缀都不改变 Todo。执行读取当前分支，严格解析完整文档，在 working copy 按顺序应用逻辑操作，最后一次提交；语法、目标或规则错误拒绝整批。
-
-ANSI 与 native 卡片的解析诊断在渲染时使用当前界面语言；返回模型的执行错误仍使用英语。
-
-任务操作保留 progress normalize 和 `transitionTime`。同一接受批次中的状态转换共享一个墙钟锚点，只在 working copy 短暂 active 的任务不累计虚假的命令处理耗时；GOAL 与 VIEW 不 normalize 或改变任务时钟。
-
-空列表不携带 goal。导入列表缺 goal 时，必须先写 GOAL。RM ALL 或删除最后一项后，working copy 丢弃 goal，后续追加不能继承；创建下一份列表应使用 INIT。
-
-当前会话分支是唯一权威。改变状态的成功批次只追加一条完整 `mouriya.omp.todo-more` snapshot，并更新一次宿主 TodoTracker 投影。结果保留 `todoMore: true`、`details.more`、作为宿主投影的 `details.phases`、storage 和完成 transitions。宿主投影只用宿主的四种状态且不含 blocker：blocked 项在那里是 `pending`。`details.more` 保留插件的五种状态与 blocker。`details.op` 为操作名或 `"batch"`，`details.operations` 列出操作名；仅成功 mutation 返回 `details.changes`，记录按顺序实际应用的结构化操作，包括 ADD 的预算、ESTIMATE 值以及每个 `DONE` 的提交子句。VIEW 和失败不产生 accepted changes。
-
-reader 按标题联结宿主 `user_todo_edit` 与旧原生工具结果：已知标题保留 explanation 和计时元数据，新标题缺少两者；原生空 snapshot 中断此前 goal、explanation 和计时元数据的继承。自有 marked 工具结果不重复作为状态记录读取。现有 reader 忽略格式无效的记录；本次迁移不更改这项兼容语义。
-
-所有读取按 session manager 对分支做一次前向折叠并保留结果：之后的读取只折叠新追加的条目；leaf 离开已折叠路径（branch、树导航、切换会话）时从根折叠新分支。不保留列表的其他副本。
-
-同步追加确认的是当前分支接受记录，不是磁盘 durable-write 确认。文件写入、flush 和磁盘失败处理属于 OMP SessionManager 生命周期；退出后 resume 是正常持久化路径的验证方式。
-
-### 估时与超时警告
-
-`ESTIMATE "title" minutes` 用于补齐或修订任务总时间预算，与 `ADD` 一样不超过 `leafMaxMinutes`。旧 snapshot 和原生入口创建的项为 `time.kind: "missing"`；模型必须显式估时，系统不倒推未知历史耗时。首次补估计时，已经 active 的项从接受批次的锚点开始计时。
-
-任务是列表的叶子，阶段不带预算。收到超时警告的预算即被关闭：会改变它的 `ESTIMATE` 拒绝整份文档，错误信息给出应追加新任务的阶段名。这部分工作要更多时间，只能用 `PHASE` 加 `ADD` 新增任务，每项同样不超过 `leafMaxMinutes`。
-
-|任务变化|计时行为|
-|---|---|
-|进入 `in_progress`|开始一个墙钟区间。|
-|离开 `in_progress`，变为 pending、blocked 或关闭状态|累计当前区间并暂停。|
-|恢复或显式重新开始同一项|保留累计时间，开始下一个区间。|
-|重复 `start`、执行 `view`、编辑 explanation/goal|保留原有计时。|
-|在超时警告前修订估计|保留累计时间及正在运行的区间；数值变化会创建新的预算身份，同值是 no-op。|
-|删除后重新创建|新预算不继承被删除项的耗时。|
-
-只要持久状态仍为 `in_progress`，会话 idle 或进程停止期间也继续累计墙钟时间；这不是 CPU 时间统计。原生状态变化使用对应 session entry 的 timestamp 结算。在 `ask` 里等用户作答的时间不算工作时间，从每个 `in_progress` 区间中扣除：一次等待从宿主对该 `ask` 调用写下的 `tool_execution_start` 记录（`startedAt`）开始，到该调用的工具结果（`timestamp`）结束；进程在 ask 未结束时退出，则以宿主的 `session_exit` 记录为结束。这些都从分支读出。
-
-插件只保留距离最近的 active 预算 deadline 的一个单次 timeout；自身 `todo` 结果、宿主在工具外的写入（`/todo`、RPC `set_todos` 与子会话自动完成，均经 `session.commitTodoPhases`）、原生 `todo` 结果、`ask` 调用的结果、turn 与 run 结束、prompt 开始以及 session/branch 变化时重新调度。`ask` 尚未结束时不运行任何 deadline：落在等待期间的 deadline 重新读取分支，看到未结束的 ask 后不告警，等它的结果重新调度。不进行周期轮询，也不改动 session manager 的写入方法和 collaboration callback：从 collaboration 宿主复制来的条目在下一个上述事件时被读取。到点 callback 重新读取当前分支后请求注入；超长等待仅按平台 timeout 上限分段。
-
-每个超时 active 预算在正常投递路径收到一次系统警告。在警告之前修订出的新预算也有一次警告机会；如果保留的累计时间已经超过新预算，会再次告警。排队消息只是投递意图；实际 `mouriya.omp.todo-more.overtime` custom-message entry 才是通知事实，普通 compaction 保留分支 journal 中的这些记录。警告不复制进 item snapshot，重新加载时按分支重建 timeout。
-
-到点时，运行中的会话立即收到 aside 注入请求；宿主在下一个安全 step boundary 将警告提供给模型，不取消工具批次。检测和排队不等待 step 结束。idle 时警告立即追加到 transcript 和 context，但不启动模型 turn，因此不会撤销人工停止。shutdown 取消 timeout 并恢复 `session.commitTodoPhases`；重新打开已超时的 active 项时重新检查。
-
-警告把超时定性为严重问题。它指出任务、预计时间与已耗时间，并要求 agent 在该任务上做任何其他事之前：核对证据查明超时原因；判断方针是否必须改变（原因不明时与 subagent 讨论，子会话则与 parent 沟通）；在下一条消息里说明查到的原因和接下来的方针。警告说明该任务的预估已关闭，并给出该任务所在阶段名，供剩余工作用 `PHASE` 加 `ADD` 追加。警告禁止降低预期结果、验收标准和质量，也禁止为躲避超时而重建列表或删掉再重建该任务。插件不自动创建 agent、不改变任务 status、不降低 goal。
-
-
-### 完成与 git 关联
-
-`DONE` 可以携带这次完成所欠的提交。提交由 todo 工具自己经宿主 git 绑定完成（`@oh-my-pi/pi-natives/vcs`，按整文件从会话目录暂存），因此列表里不会出现 git 并未产生的提交：
-
-```text
-DONE "实现文档解析" "接受完整文档"                                  # 全部改动
-DONE "显示流式预览" "src/render.ts" "显示流式意图"                 # 仅该 pathspec
-```
-
-一个字符串是提交信息，提交全部未提交改动；空 scope 字符串 `DONE "title" "" "message"` 含义相同。两个字符串依次是空白分隔的 scope 与其提交信息；pathspec 相对会话目录解析，与模型自己的 shell 一致。该 `DONE` 完成的每个任务都会记录被 git 接受的提交（sha、message、解析后的 scope），summary、native 卡片、snapshot 与 ctx task log 都会显示。
-
-git 记录的提交信息在 message 之后，为提交方会话自上一次 todo 提交以来运行过的每个模型写一行 `Model: <provider>/<model-id>` trailer：范围是分支上最后一个带来新提交的 snapshot 之后的 assistant 轮次（失败的请求除外），再加上会话当前模型，按首次出现顺序去重。只记录提交方会话自己的模型：在自己工作树里的 `task:*` worker 自己提交自己的改动并记录自己的模型。任务上保留的 message 不含 trailer；用 `git log --format='%(trailers:key=Model,valueonly)'` 读回模型。没有任何模型记录时只提交 message。
-
-不在 checkout 内，或工作区没有未提交改动时，该子句是惰性的：不产生提交，参数无论是否给出都被忽略。在存在未提交改动的 checkout 内，不带子句的 `DONE` 会被拒绝并要求补上子句——被拒绝的是这次完成，不是检查本身。scope 按原样提交，工具不会校验它是否覆盖了全部未提交改动；暂存不到任何内容的 scope 会带着 git 自己的回答被拒绝。同一批次中的每个 `DONE` 提交该时刻仍存在的未提交改动，因此同批次后续子句面对干净工作区时会保持惰性。
-
-工作树与父 agent 相同的 `task:*` 子 agent 不提交：该工作树里还有父 agent 与其他会话尚未提交的改动，由父 agent 集成并提交。无论哪种 `DONE` 写法（不带子句、只带提交信息、带 scope 与提交信息），任务都会完成，既不产生提交，也不触发未提交改动的拒绝，结果说明改动由父 agent 集成。判定共享的条件是：父 agent 的 live session（通过子 agent 的 `parentId` 在 agent registry 中找到）与子 agent 解析出同一个 git 工作树根目录；linked worktree 按它自己的根目录比较，因此 isolated 子 agent 仍遵循上面的规则。父 agent 的 registry 条目或 live session 已不存在，或任一方目录不在 checkout 内时，同样遵循上面的规则。
-
-## 子会话与提醒
-
-每个会话独立持有列表。宿主会从子 agent 剥离 todo 工具，之后每次由扩展发起的启用工具变更（例如其他插件按 turn 同步工具）也会再次剥离。对自身已启用工具包含 `edit` 的子 agent，插件在每次模型调用前把该工具放回，并按 oh-my-omp 插件共用的规范顺序写入整个启用工具集（内置工具按注册表顺序在前，其余名称按字典序）。该顺序只由工具集合决定，因此 fork 或重建的会话列出相同顺序的工具、保持 prompt 缓存命中。这让 edit 前置条件可以由该 agent 自己满足，不依赖 agent 名称、显式的 `todo` 声明或各插件 hook 的执行顺序；默认工具集的 `task:*` 与自定义编辑型 agent 使用同一规则。未启用 `edit` 的子 agent 不会获得恢复的工具。tool-restricted 会话通过宿主工具槽安装。保留 stop reminder、mid-run nudge、eager prelude、goal-mode context 与 request-only 用户提醒。goal mode 下，请求中宿主自己的 todo 快照被替换为插件的快照，其中带有 goal、explanation 与预估。人工中断不自动恢复。
-
-Todo 只属于工作阶段：请求会改动文件、配置、git 或外部状态。讨论、调查、解释与回答问题属于非工作阶段，不建 todo。Todo lifecycle topic、每条用户消息附带的空列表提醒与 `preferred` eager prelude 都按此划分；真正强制的只有 `edit` 守卫，因为 `edit` 就是工作。
-
-主会话在没有文本答复时中途停下（provider 错误、仍有未完成的 tool call、非人为的 abort），提醒在 10 秒宽限后发送；期间出现新一轮、排队消息或输入框草稿则不发。账户额度用尽的 429 改为等到额度重置后一分钟：错误带有重试提示时取 provider 给出的时间，否则取 omp 对该限额的估计（额度用尽为 30 分钟，并标明为估计）。等待期间输入框上方显示一行不抢焦点的提示，写明发送时间与原因；到点时输入框仍有草稿则等草稿清空后再发。`Ctrl+N` 或 `/todo-more-cancel` 取消待发提醒；提交消息、切换会话或分支、退出也会取消。待发提醒不跨进程保留。
-
-planning guard 在真正执行 edit 时读取当前分支，不在工具批次预检时判断；Todo INIT/edit 或 RM/edit 序列因此按 edit 执行时已接受文档的列表检查。
-
-## 只读 review 协议
-
-同一会话的 `ExtensionAPI.events` 提供同步 channel `omp-todo-more:read`。请求为 `{agentId, reply(value)}`，owner 从该 agent 当前分支读取并在 emit 返回前回复：
-
-```ts
-type TodoMoreReadResponse =
-  | {
-      kind: "ok";
-      goal: { objective: string; measure: string; doneWhen: string } | null;
-      openItems: readonly { phase: string; title: string; explanation: string | null }[];
-      counts: { pending: number; in_progress: number; completed: number; abandoned: number; blocked: number };
-    }
-  | { kind: "unavailable" };
-```
-
-`openItems` 只含 pending/in_progress 项；missing goal/explanation 为 null。`counts` 是整个列表各状态的项数，空列表全为 0，消费者据此区分空列表、仍有 blocked 项和全部关闭的列表。无会话或读取异常是 unavailable，不是空 Todo。通道不写状态、不提供 watch，不安装 Tern、不导出内部 reader。监听器在实例 session_shutdown 取消，子会话使用自己的 bus。
-
-completion judge 应在构造模型 prompt 前请求一次，并在模型返回后、检查 openItems 前再次请求；不可用时沿用 warning + fail-open。ctx 历史消费者从成功的 `details.changes` 记录每个已接受逻辑操作及其显式 goal 替换，不把历史当作当前 Todo 状态。
-
-## 编辑与提交
-
-GUI 编辑意图只有 `set_goal` 和按完整 title 的 `explain`，编辑本身不生成模型工具调用。保存重新读取对应 session 的当前分支：只覆盖目标字段，任务的最新 phase/status/blocker/order、时间预算、计时和其他字段全部保留。空列表拒绝编辑，missing goal 必须先设置；删除或改名的任务不因旧草稿恢复。
-
-工具 mutation 与 GUI 保存共同调用 `commitTodoState`。同步追加后重读同一分支确认接受，再更新宿主投影。失败区分 branch acceptance 与 projection：后者不回滚已接受记录，工具返回 error 与最新权威 details，GUI 保留草稿和错误。相同值不追加 snapshot；重投影允许修复此前的部分 projection failure。`view` 保持纯读。
-
-## 原生展示与编辑
-
-Todo More 在 Tern 保留真正的原生 `checklist` HUD 作为药丸、进度环、标题、计数、字体和 skin 外观的视觉来源。替代实现占据原生 activity track，沿用 `omp.hud.todo` 的尺寸和对齐规则。Objective、Measure、Done when、全部 phase/task、五种 status、预估耗时、explanation 和 blocker 仍作为完整富内容展示；goal 不伪装成任务，不影响进度。
-
-原生 bare card 的 disclosure head 是唯一交互入口，其原生 toggle 事件和受控 `collapsed` 属性驱动一份绑定 session 的展开状态。只用于视觉的 checklist 按钮保持隐藏、不可聚焦，仅显示其非交互的进度环、标题和计数；其本地 HUD popover 从不激活。Escape、进入编辑器、列表变空、查看会话变化或 widget dispose 都会关闭富内容并移除输入监听。
-
-沿用原生尺寸的 Todo wrapper 包含 disclosure 及其同级富内容 popover，因此悬停富内容不会高亮药丸。popover 直接沿用原生 `.sf-ck-pop` 的定位：右对齐、在药丸上方保留 8px 间距、360px 宽度、420px 最大高度及 12px/14px padding，同时保留前置 HUD 行的原生条件间距、玻璃、阴影和动画。popover 自身是唯一滚动区，内层 details 保留自然内容高度；超过原生上限时，可以从 goal 滚动到最后任务和编辑按钮，再滚回顶部。该路径不使用 generic portal、方向翻转、下方托盘或独立的 viewport/composer 高度计算。
-
-appearance、命名主题与对应 program palette 的切换通过原生 renderer 和继承变量即时生效，包括富内容已经展开时。插件不保存主题副本，保留原生药丸尺寸和字体，不冻结主题颜色或字体度量。
-
-`INIT` 与 `VIEW` 工具卡片展示完整列表；日常增删改工具卡片折叠时只展示当次变更的任务或 goal，展开时恢复当次完整 `details.more` 快照。主会话的 stop 提醒以 info 通知显示提醒事件头部（未完成数与第几次），不写入会话；子 agent 与中断续跑的提醒卡片只显示该事件头部，不列出任何任务。历史工具卡片使用当次 `details.more`；工具卡片与提醒都不成为编辑源，也不随当前列表编辑而改变。
-
-Tern 的主会话输入区中，`/todo` 与 `/todo edit` 打开富信息 `/todo-more` 编辑器。聚焦子会话时保留宿主的 slash-command 限制，可使用该子会话 popover 的 Edit 按钮进入其富编辑器。其余 `/todo` 子命令（包括 expand/collapse）保留宿主行为；Todo More 的原生 disclosure head 控制富信息展开。任务变更按前述规则按标题联结。普通 ANSI OMP 保留宿主命令和 HUD，替代 widget 不输出 ANSI 行。
-
-在 OMP/Tern 的主会话输入 `/todo-more` 打开其编辑 overlay。Tab/Shift+Tab 或上下方向键选择动作，当前动作以 accent 标记，Enter 打开它；任务删除后选择位置按当前列表收敛。进度 popover 的编辑按钮进入同一个编辑器，不另建编辑实现。
-
-`Edit goal` 使用三个有标签的宿主 Editor 草稿，Tab/Shift+Tab 切换当前字段。Tern 同时只把当前字段描述为 live editor，其余字段仍可见且可点击激活；编辑与 undo 由原有 Editor/FormField 处理。`Edit explanation` 打开目标标题的 multiline Editor。普通 Enter 保留换行，Ctrl+Enter 或 Save 保存，Escape/Cancel 丢弃草稿；关闭面板不提交。保存错误保留草稿并显示原因，成功重新读当前分支。编辑本身不启动模型 turn。
-
-进度 widget 每次原生渲染读取当前查看会话（含聚焦的 task 子会话及嵌套子会话）的当前分支，在 switch/branch/tree 后重新安装；空列表不显示进度卡片。编辑 overlay 绑定打开时的 session，查看目标改变或 switch/branch/tree/shutdown 会取消旧 UI 与草稿。Save 再次核对目标，将记录追加到该 session 自己的分支，再更新其宿主投影。没有交互 UI 时编辑命令报告不可用，不改变 Todo。
-
-## Tern 资产生命周期
-
-包附带 `tern/plugin.toml`、`todo-more.css`、`window.luau`。药丸视觉、展开控件、完整 checklist 和编辑由 OMP native components 提供；window entry 满足 stylesheet manifest 契约，不建立领域状态存储或编辑器。样式仅作用于 `omp.session` surface，将原生 Todo 设为不可见但保留其真实布局占位和宿主任务投影。
-
-当前 OMP native dock 有十三个源插槽。CSS grid 适配保留各插槽，将 Todo More 放入原有 activity track，其他 below-editor widget 仍按正常顺序显示。popover 在沿用原生尺寸的 Todo wrapper 内绝对定位，与 disclosure 同级，不建立单独 layer、anchor 或 allocation canvas。适配同时保留原生条件 HUD clearance、skin 变量以及 Spine 的 widget 间距、padding 和背景带。该实现依赖 OMP dock 拓扑、Tern checklist 视觉及 card head/body 结构，升级后须重验几何、焦点、多 widget 与实时主题切换；不修改宿主源码或二进制。
-
-Tern 样式插件必须与 OMP 扩展成套启用。Tern 插件启用期间，样式会隐藏原生 HUD，包括没有加载本 OMP 扩展的会话；禁用或移除 Tern 插件会恢复原生 HUD。Tern CSS 不支持 `:has()` 条件，不承诺 OMP 扩展缺失时自动回退原生 HUD。
-
-async 工厂先同步注册工具、hooks 和 UI，然后 await `initializeTernPlugin`，最后订阅 review API。Tern 初始化被拒绝时工厂同样被拒绝，机器不会得到本插件。资产目录从模块相对路径定位；通过真正的 `tern plugin dir/list/install --json` 请求 owner，校验 catalog 与三文件 normal copy。相同 ready/disabled 副本不重新安装；需要更新时使用 `install --force`，等待后复查身份、版本、destination、catalog 和文件内容。保留用户 disabled 设置，不执行 unlink 或自动 enable。
-
-本加载图只有一个初始化 Promise，prepared 子工厂复用它，但每个 session 仍独立注册工具、hooks 与 read listener。Tern 不在 PATH 时允许 ANSI OMP 使用，不代表 GUI 验收完成。Tern 存在时的 CLI、解析、安装、linked 冲突或复查失败会拒绝工厂初始化；机器此时只运行原生 todo、没有本插件工具，不能把 warning 当成成功。磁盘安装验收也不替代真实窗口的 CSS 和编辑路径验证。
-
-Tern 的 headless `serve` 不自动加载已安装插件。原生 UI 验证需要通过隔离测试文档的 control endpoint 加载随包 stylesheet，或使用真实 Tern 窗口；必须核对实际进度卡片、popover 和编辑器，不能只检查 catalog。
-
-## 开发
-
-```sh
-bun install
-bun run format
-bunx tsc --noEmit
-bun test
-```
-
-host peer dependencies 使用 `*`，开发依赖使用 `latest`；无需 bundler 或编译产物。运行状态、凭据、开发依赖和 lock 文件不属于交付包。
+- **`todo` 工具**
+  - `todo` 工具注册 — 功能：注册名为 `todo` 的工具，遮蔽宿主同名内置工具，每次调用解析一份 Todo 文档为命令（`INIT`、`PHASE`、`ADD`、`START`、`DONE`、`DROP`、`RM`、`BLOCK`、`UNBLOCK`、`EXPLAIN`、`ESTIMATE`、`GOAL`、`VIEW`），作用于携带目标、逐项说明与分钟估算的分阶段列表。时机：在插件已加载的会话中，模型每次调用 `todo` 时。实例：`index.ts` 的 `pi.registerTool(TODO_TOOL_DEFINITION)`；一次调用形如 `*** Begin Todo\nINIT "objective" "measure" "doneWhen"\nPHASE "Implementation"\nADD "Implement the parser" "Accept complete documents" 20\n*** End Todo`。
+  - 工具字段声明 — 功能：声明 `loadMode: "discoverable"`、`approval: "read"`、`strict: true`、`concurrency: "exclusive"` 与 `mergeCallAndResult: true`，使工具可被发现、严格校验、串行执行，且结果卡片替换调用卡片。时机：插件加载注册工具时固定。实例：`index.ts` 的 `TOOL_FIELDS`。
+  - 说明与卡片渲染 — 功能：携带写明文档语法与拒绝规则的模型侧说明，以及 `describeCall`/`describeResult` 和 `renderCall`/`renderResult` 钩子，在 ANSI 与原生卡片中预览已接受的命令行和未完成的尾部。时机：每当提供 `todo` 时出现在 prompt 的 tools 部分，以及渲染 `todo` 调用或结果卡片时。实例：`src/tool.ts` 的 `DESCRIPTION`，`src/render.ts` 的 `renderTodoCall`/`renderTodoResult`。
+  - 文档校验 — 功能：在应用任何内容之前校验整份文档，第一个错误即拒绝整个批次：JSON 引号字符串、唯一标题、`ADD "title" "explanation" <正整数分钟>` 受 `leafMaxMinutes` 上限约束、对已收到超时警告的条目拒绝 `ESTIMATE`。时机：每次 `todo` 调用，在任何状态变更之前。实例：`src/tool.ts` 的 `ruleErrors`/`overCap` 产生 `Task "…" estimate 90 min exceeds the 60-minute limit for one item`。
+  - `xd://todo/protocol` — 功能：提供覆盖文档语法、选择器与完成提交的 `protocol` doc topic。时机：模型读取 `xd://todo` 或 `xd://todo/protocol` 时。实例：`src/topics.ts` 的 `todoDocTopics` 加载 `src/topics/todo-protocol.md`。
+  - `xd://todo/lifecycle` — 功能：提供覆盖规划、阻塞与时间预算的 `lifecycle` doc topic。时机：模型读取 `xd://todo` 或 `xd://todo/lifecycle` 时。实例：`src/topics.ts` 的 `todoDocTopics` 加载 `src/topics/todo-lifecycle.md`。
+- **完成时的 git 关联**
+  - `DONE` 提交子句 — 功能：经宿主 git 绑定暂存并提交——一个字符串提交全部未提交改动，两个字符串分别是以空白分隔的路径范围与提交信息——把 sha/信息/范围记录在条目上，并拒绝脏检出中不带子句的 `DONE`。时机：在 `todo` 批次中执行 `DONE` 命令时。实例：`DONE "Render the preview" "src/render.ts" "Show streamed intent"`，由 `src/tool.ts` 的 `completeWithCommit` 与 `src/git.ts` 处理。
+  - `Model:` trailer — 功能：为提交信息追加 `Model: <provider>/<model-id>` trailer，每个自上次 todo 提交以来本提交会话运行过的模型一个，外加当前模型，各一次、按首次使用顺序。时机：每次 `DONE` 产生提交时。实例：`src/models.ts` 的 `withModelTrailers`；用 `git log --format='%(trailers:key=Model,valueonly)'` 读回。
+  - 父级工作树豁免 — 功能：豁免工作树即其父级工作树的子代理（经 `ctx.agent.parentId` 找到）的提交义务与脏树拒绝，因为该工作树由父级整合。时机：`task:*` 子代理执行每个 `DONE` 时。实例：`index.ts` 的 `parentCwdOf`，工作树共享比较见 `src/git.ts`。
+- **会话分支上的列表状态**
+  - 快照条目与宿主投影 — 功能：每次接受的变更向会话分支追加一条完整 `mouriya.omp.todo-more` 快照并确认被接受，再把宿主投影（标题为内容、四种状态、blocked 视为 pending）推入 `TodoTracker`，使宿主 HUD、`/todo`、再水合与持久化继续工作。时机：每次被接受的 `todo` 调用与 GUI 保存之后。实例：`src/commit.ts` 的 `appendCustomEntry(TODO_MORE_ENTRY_TYPE, toSnapshot(next))` 与 `session.setTodoPhases(hostPhases(next))`。
+  - 分支折叠 — 功能：每次读取都在分支条目上向前折叠——按标题并入宿主的 `user_todo_edit` 记录（`/todo`、RPC `set_todos`、子代理自动完成），把新标题标记为缺少说明与时钟——并为每个 session manager 保留一个增量累加器。时机：工具、提醒、超时、ctx 或 UI 每次读取列表时。实例：`src/branch.ts` 的 `foldEntry`/`branchFacts`。
+  - 时间跟踪 — 功能：跟踪每个条目 `in_progress` 墙钟时间并排除 `ask` 等待，为每个 estimate 记录预算 id，使超时警告在重新估算后仍锁定该预算身份。时机：每次分支折叠与每次超时检查时。实例：`src/state.ts` 的 `elapsedTime`/`transitionTime`，等待从 `tool_execution_start` 记录折叠，见 `src/branch.ts`。
+- **编辑型子代理中的 `todo` 恢复**
+  - 子代理 `todo` 恢复 — 功能：为启用工具中含 `edit` 但不含 `todo` 的子代理会话补回 `todo`，按规范顺序（内置工具按注册表顺序，其余按码点排序）写整份启用集使 fork 保持 prompt 缓存；工具受限会话经 `refreshRpcHostTools` 安装。时机：子代理会话每次模型调用之前，通过在其首个 `before_agent_start` 上挂接的 before-model-call 钩子。实例：`index.ts` 的 `guardSubagent`/`restoreTodo`/`canonicalToolOrder`。
+- **计划与提醒**
+  - eager 前导 — 功能：当 `eager` 为 `preferred`（隐藏提醒）或 `always`（还强制具名 `todo` 工具选择）时在首个合资格 prompt 上要求制定分阶段 todo，自动压缩后列表为空时在下一个 prompt 重新发出提醒。时机：`before_agent_start` 钩子的 prompt 起始处，由 `auto_compaction_end` 武装。实例：`src/reminders.ts` 的 `eagerTodoPrelude`/`eagerTodoText`，文本 ``Before substantive work, create a phased todo. … You MUST call `todo` first in this turn.``。
+  - 编辑守卫 — 功能：包装会话 `edit` 工具的 execute，使空 todo 列表下的调用以初始化提醒失败而不是执行编辑，每个工具实例只安装一次、在其批次运行前装好。时机：`session_start`、`before_agent_start` 与 `edit` 的 `tool_call`；检查本身在 `execute` 内运行。实例：`src/planning.ts` 的 `installEditGuard` 返回 `Todo is empty. Work phase … initialize with one complete Todo document`。
+  - 计划提醒 — 功能：经共享 delta 流投递 `<system-reminder source="omp-todo-more/planning">`——列表为空时是 `INIT` 指令，否则是完整 JSON 快照加 "Discussion, investigation, explanation and questions add no items" 前言——仅当快照变化时重发，压缩丢弃后恢复。时机：作为隐藏的 `before_agent_start` 消息与每个工具批次后的 `additionalContext`。实例：`src/planning.ts` 的 `reminderBody`/`createDeltaStream("omp-todo-more/planning")`。
+  - 原生自动化静默 — 功能：用进程内、从不持久化的 `todo.reminders` 与 `todo.eager` 覆盖关闭宿主自身的停止提醒、mid-run nudge 与 eager 前导，使只有本插件的版本生效。时机：`session_start`、`session_switch` 与每个 `before_agent_start`。实例：`src/settings.ts` 的 `silenceNativeTodoAutomation` 调用 `cfgTodoReminders.override(session.settings, false)`。
+  - 主会话停止提醒 — 功能：会话以文本回答结束而仍有未关闭条目时，把提醒作为 `session_stop` 续跑上下文返回，每个停止链最多 `remindersMax` 次，跳过计划模式、进行中的链、等待用户回答的问题与带 wake source 的会话。时机：主会话 `session_stop` 且最后一条是终止性助手回答时。实例：`src/reminders.ts` 的 `checkCompletion`/`reminderText` 发出 `You stopped with N incomplete todo item(s): … (Reminder 1/3)`。
+  - 子代理停止提醒 — 功能：把同样的提醒以触发一轮的隐藏 `nextTurn` 消息发送，预算为其分支上最近一条真实用户消息之后的提醒消息数。时机：`sub` 会话以终止性回答结束且仍有未关闭条目时的 `agent_end` 之后。实例：`src/reminders.ts` 中 `agent_end` 钩子的 `ctx.agent.kind === "sub"` 分支。
+  - 延迟截断催促 — 功能：主会话被截断收场（provider 错误、工具调用未完成、无人请求的 abort）时在 10 秒宽限后催促，一旦出现轮次、排队消息或编辑器草稿即取消，并加闩使停滞的链只催一次直到有进展或新周期重新武装。时机：`agent_end` 时武装（此时不触发 `session_stop`）。实例：`src/reminders.ts` 的 `armCutOff`/`CUT_OFF_GRACE_MS`，由 `agent_start`、`session_shutdown`、`session_switch`、`session_branch`、`session_tree` 取消。
+  - 配额 429 等待 — 功能：停止原因是用量上限 429 时把截断提醒推迟到账户重置后一分钟（用 provider 重试提示，否则用 omp 对耗尽配额的 30 分钟估算），在编辑器上方显示一行小组件标明发送时间，编辑器有草稿时等到草稿清除。时机：`agent_end` 决定的截断等待之内。实例：`src/quota-wait.ts` 的 `cutOffWait`/`quotaNoticeLine` 渲染 `Todo reminder scheduled for 14:35 (account quota 429, resets 14:34) · Ctrl+N or /todo-more-cancel to cancel`，widget key `todo-more.quota-reminder`。
+  - `/todo-more-cancel` 与 `Ctrl+N` — 功能：注册该命令与快捷键取消待发的延迟提醒，把链闩为已取消并通知 `Todo reminder cancelled` 或 `No pending Todo reminder`。时机：用户按 `Ctrl+N` 或运行 `/todo-more-cancel` 时。实例：`src/reminders.ts` 的 `pi.registerShortcut("ctrl+n", …)` 与 `pi.registerCommand("todo-more-cancel", …)`。
+  - mid-run nudge — 功能：在 12 次成功的 bash/eval/edit/write/ast_edit 结果而其间没有 `todo` 调用后，发出列出未完成数与目标的隐藏 aside，每周期最多两次。时机：运行了工具的轮次的 `turn_end`。实例：`src/reminders.ts` 的 `takeMidRunNudge` 发出 ``N todo items still open. If you finished a task since last `todo` update, mark it done now…``。
+  - goal 模式 `<todo_context>` — 功能：goal 模式开启时把 `goal-mode-context` 消息中宿主的 todo 快照替换为插件更丰富的快照（目标、说明、估算），每次模型请求生效。时机：每次模型调用的 `context` 钩子。实例：`src/reminders.ts` 的 `contextMessages`/`goalTodoContext`/`withoutNativeTodoContext`。
+  - 提醒渲染器 — 功能：把提醒事件渲染为一行事件头（未完成数 · 第几次/上限），使转录卡片不再重复列出 todo 条目。时机：转录渲染 `mouriya.omp.todo-more.reminder` 消息时。实例：`src/reminders.ts` 的 `pi.registerMessageRenderer(REMINDER_TYPE, renderReminder)`。
+- **超时警告**
+  - 超时截止定时器 — 功能：保持一个指向最近活动条目估算截止时间的定时器，在会话/分支事件、`todo`/`ask` 结果、`commitTodoPhases` 写入与轮次/运行结束时重新武装，`ask` 打开期间暂停。时机：从 `session_start`/`session_switch`/`session_branch`/`session_tree` 与每个改变列表的事件调度。实例：`src/overtime.ts` 的 `registerOvertime`/`reschedule`。
+  - 超时警告投递 — 功能：到点时按预算 id 发送一条 `mouriya.omp.todo-more.overtime` 消息——运行中作为 aside、空闲时作为不开轮次的可见消息——包在 `<system-reminder source="omp-todo-more/overtime">` delta 中，记录下的消息即分支折叠的持久警告事实。时机：被跟踪条目的 in_progress 墙钟时间超过其估算时。实例：`src/overtime.ts` 的正文 `SERIOUS: todo item "…" has exceeded its estimated time: estimate 60 min; elapsed 62.31 min of in_progress wall time.`，经 `createDeltaStream("omp-todo-more/overtime")` 发送。
+- **上下文回想（`ctx`）**
+  - `ctx` 工具 — 功能：注册只读 `ctx` 工具（`loadMode: "essential"`，op 为 `list`/`show`，另有 `id`、`all`），构建本会话及其 `task` 子代理的实时目录——状态、handoff 摘要、todo 计数与时间线——合并自 agent 注册表、转录、sidecar 与任务日志。时机：模型调用 `ctx` 时。实例：`ctx({ op: "list" })` 或 `ctx({ op: "show", id: "b3" })`，`src/ctx/inventory.ts` 的 `contextParams`/`registerCtxTool`。
+  - `xd://ctx/recall` — 功能：提供覆盖列表、handoff 展示、任务时间线与转录回退的 `recall` doc topic。时机：模型读取 `xd://ctx` 或 `xd://ctx/recall` 时。实例：`src/topics.ts` 的 `ctxDocTopics` 加载 `src/topics/ctx-recall.md`。
+  - 压缩后名册 — 功能：把压缩时刻的 `task` 子代理名册（每行一条 `ctx list` 行）放在主会话此后每个请求里压缩摘要的正后方，按压缩 id 持久化为一条 `todo-more.post-compact-ctx` 条目使其逐字节一致并可跨 resume 存活。时机：`context` 钩子，仅主会话，每次压缩后的首个请求。实例：`src/ctx/post-compact-hint.ts` 的 `registerPostCompactHint`，条目类型见 `src/branch.ts`。
+  - 任务日志 — 功能：为每次成功的 `todo`/`goal` 变更向 `local://task-log/<agent-id>.md` 追加一条带时间戳的行（op、明细与 `todo-more set` 目标记录），即 `ctx` 回放出计数与时间线的文件。时机：主、子会话中 `toolName` 为 `todo` 或 `goal` 且 `isError: false` 的 `tool_result`。实例：`src/ctx/tasklog.ts` 的 `registerCtxTasklog` 经 `src/ctx/task-log.ts` 的 `taskLogPath` 写入 `- 2026-11-20 09:41:03 todo done: "title"`。
+- **原生 UI 与 Tern 面板**
+  - `todo-more.hud` 小组件 — 功能：在编辑器下方挂载实时 `TodoHud`，跟随被查看的会话——pill、进度及打开富 popover 的 disclosure——并在会话、分支与树跳转时重装。时机：`session_start`/`session_switch`/`session_branch`/`session_tree`。实例：`src/ui.ts` 的 `installHud`/widget key `todo-more.hud`。
+  - `/todo` 输入改写 — 功能：在原生前端把交互式 `/todo` 与 `/todo edit` 输入改写为 `/todo-more`，其余 `/todo` 子命令留给宿主。时机：原生渲染生效时匹配 `/^\/todo(?:[\s:]+(.*))?$/` 的 `input` 事件。实例：`src/ui.ts` 的 `input` 钩子返回 `{ text: "/todo-more" }`。
+  - `/todo-more` 命令与编辑器 — 功能：注册该命令打开会话绑定的覆盖层编辑器（`TodoPanel`）以编辑目标字段与条目说明，非交互会话以 `todo-more.ui-unavailable` 消息拒绝，被查看会话变化时丢弃草稿。时机：`/todo-more`、HUD 编辑入口或 `/todo` 改写时。实例：`src/ui.ts` 的 `pi.registerCommand("todo-more", …)`/`TodoPanel`，消息 `Todo More editor requires an interactive UI.`。
+  - Tern 包 — 功能：随包发布 `tern/plugin.toml`（id `omp-todo-more`）、`window.luau` 与 `todo-more.css`，其样式表隐藏原生 Todo HUD 同时保留其布局盒，使扩展的小组件占据该槽位。时机：Tern 中该插件已安装且启用期间。实例：`tern/todo-more.css` 的 `.sf-dock[data-surface="omp.session"]` 网格适配。
+  - Tern owner-CLI 安装 — 功能：加载时经 `tern plugin dir/list/install --json` 安装或修复该包，副本一致时跳过，Tern 存在但检查失败时拒绝整个扩展工厂。时机：异步工厂内、订阅 review API 之前；`tern` 不在 `PATH` 上时跳过。实例：`src/tern-plugin-install.ts` 的 `initializeTernPlugin`/`isCurrent`。
+- **同步 review 协议**
+  - `omp-todo-more:read` 监听器 — 功能：在事件总线上同步应答请求 `{agentId, reply(value)}`：从指定 agent 的活动分支读取并回复 `{kind: "ok", goal, openItems, counts}` 或 `{kind: "unavailable"}`，不写、不缓存、无定时器。时机：另一进程内扩展在 `pi.events` 上发出 `omp-todo-more:read` 时；`session_shutdown` 时移除。实例：`src/review-api.ts` 的 `registerReviewApi`，协议见 `omomp-shared/todo-read.ts`。
+- **插件设置**
+  - 插件设置 — 功能：以原生插件设置声明 `reminders`（默认 `true`）、`remindersMax`（默认 `3`，0–100）、`eager`（`default|preferred|always`）与 `leafMaxMinutes`（默认 `60`，1–1440），非法值回退默认并告警。时机：`session_start`、每个 prompt 起始与每次 `todo` 调用时经 `getPluginSettings` 重读。实例：`package.json` 的 `omp.settings`，`src/settings.ts` 的 `readSettings`；用 `omp plugin config omp-todo-more` 设置。
+- **语言解析**
+  - UI 文本语言 — 功能：把所有面向人的字符串（工具标签、命令说明、HUD、编辑器、通知）按 `OMOMP_LANG` 解析为英文或中文，其次取 `LC_ALL`/`LC_MESSAGES`/`LANG`，否则英文，每次生成时重读，面向模型的文本保持英文。时机：插件每次产出 UI 文本或注册标签时。实例：`src/reminders.ts` 的 `tr("Cancel the pending Todo More reminder", "取消待发的 Todo More 提醒")`，`tr` 来自 `omomp-shared/i18n.ts`。
