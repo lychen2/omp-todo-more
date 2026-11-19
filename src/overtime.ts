@@ -1,19 +1,4 @@
 /**
- * Overtime warning: when an in_progress item's in_progress wall time (minus
- * time spent waiting on the user in `ask`) passes its estimate, one
- * `OVERTIME_TYPE` message per budget id, delivered as an aside mid-run or
- * without a turn while idle.
- *
- * The deadline is a derived wake-up, never a cached todo or notification
- * fact: every check re-reads the branch facts (`branch.ts`), and the timer
- * only schedules the next check. Checks run when the list or an ask can have
- * changed: the session's start or switch, its own and the host's todo writes
- * (tool results, `session.commitTodoPhases` for `/todo`, RPC `set_todos` and
- * subagent auto-complete), ask results, and turn and run ends. An ask opening
- * needs no check of its own: a deadline that falls inside it re-reads the
- * branch, sees the open wait and stands down. A check that reads the branch
- * before the host persisted a change is corrected by the next one.
- *
  * Only events baseline todo-more already handled are subscribed: the host
  * awaits extension handlers per event type, so a new event type would shift
  * the host's own persistence order (mode changes vs tool results).
@@ -26,7 +11,6 @@ import { errorText } from "./errors.ts";
 import { sessionOf } from "./session.ts";
 import { elapsedTime, OVERTIME_TYPE } from "./state.ts";
 
-/** One session's wake-up: the bound session, its timer, and how to undo the host-write observer. */
 type DeadlineBinding = {
 	readonly ctx: ExtensionContext;
 	readonly session: AgentSession;
@@ -49,7 +33,6 @@ Do not lower the expected outcome, acceptance criteria or quality, and do not re
 export function registerOvertime(pi: ExtensionAPI): void {
 	const deltas = createDeltaStream("omp-todo-more/overtime");
 	let active: DeadlineBinding | undefined;
-	// Queued notification intents last until the branch records their message.
 	const pending = new Set<string>();
 	const cancelTimer = (binding: DeadlineBinding): void => {
 		if (binding.timer === undefined) return;
@@ -73,8 +56,6 @@ export function registerOvertime(pi: ExtensionAPI): void {
 			}
 			const state = facts.state;
 			const now = Date.now();
-			// Waiting on the user in `ask` is not work time: no deadline runs while an ask is open,
-			// and the ask's start or result re-reads the clock.
 			const waiting = facts.waits.some((wait) => wait.end === null);
 			let nextDeadline: number | undefined;
 			if (state.kind === "list" && !waiting) {
@@ -92,9 +73,6 @@ export function registerOvertime(pi: ExtensionAPI): void {
 						}
 						const details = { budgetId: time.budgetId, title: item.title, estimatedMinutes: time.minutes, elapsedMs };
 						try {
-							// The reminder body and its `<system-reminder source=…>` rendering come from the
-							// shared delta stream; the notice still goes out as its own visible message with
-							// its `details`, which is the durable overtime record `branch.ts` folds.
 							const notice = deltas.atPrompt(binding.ctx, {
 								kind: "text",
 								body: overtimeBody(item.title, phase.name, time.minutes, elapsedMs),
@@ -122,7 +100,6 @@ export function registerOvertime(pi: ExtensionAPI): void {
 				() => {
 					if (binding.timer?.handle !== handle) return;
 					delete binding.timer;
-					// Re-read at the deadline: the budget/status/branch may have changed.
 					reschedule(binding);
 				},
 				Math.min(MAX_TIMEOUT_MS, Math.max(1, nextDeadline - Date.now())),
@@ -133,7 +110,6 @@ export function registerOvertime(pi: ExtensionAPI): void {
 		}
 	};
 	let queued = false;
-	/** Coalesce the checks of one synchronous burst; the microtask reads the branch as it then stands. */
 	const changed = (): void => {
 		const binding = active;
 		if (binding === undefined || queued) return;
@@ -147,8 +123,6 @@ export function registerOvertime(pi: ExtensionAPI): void {
 		stop();
 		const session = sessionOf(ctx.agent.id);
 		if (session === undefined) return;
-		// The host's writes outside the todo tool (`/todo`, RPC `set_todos`, subagent
-		// auto-complete) all go through this method and raise no event.
 		const commit = session.commitTodoPhases;
 		const observed: typeof commit = (phases) => {
 			commit.call(session, phases);

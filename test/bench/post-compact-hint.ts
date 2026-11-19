@@ -1,31 +1,3 @@
-/**
- * Bounded-read bench for the post-compact-hint `context` hook
- * (oh-my-omp/omp-todo-more#27).
- *
- * Loads: §4 branch — 10,000 synthetic entries on a real
- * `SessionManager.inMemory` (mostly user/assistant/toolResult, sparse
- * `tool_execution_start`/`session_exit` customs, a `mouriya.omp.todo-more`
- * rich snapshot about every 300 entries, plain tail); the compaction variant
- * appends one `compaction` entry plus its `todo-more.post-compact-ctx` entry.
- *
- * Every scenario compares the registered handler against `referenceCall`,
- * a verbatim pre-fix implementation embedded in the fixture, so output
- * equivalence and the baseline ratio need no separate run.
- *
- * Scenarios:
- *   unchanged      — 50 calls, calls 2..50 must read 0 entries and copy 0;
- *   appended       — cold call, +500 plain entries, next call scans only the
- *                    new suffix (≤ appends + 1 ancestor probe), 0 copies;
- *   rendered       — compaction + snapshot: messages byte-equal to reference;
- *   unrendered     — compaction, no snapshot: observable outcome equal to
- *                    reference (undefined + warn, or payload at the same
- *                    position with matching compactionId);
- *   navigation     — branchWithSummary sibling: full rescan, output = ref;
- *   no-compaction  — steady-state timing + allocation vs reference ≥10×.
- *
- *   bun test/bench/post-compact-hint.ts --scenario <name> [--calls N] [--appends N]
- */
-
 import * as jsc from "bun:jsc";
 import { mkdirSync } from "node:fs";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
@@ -76,7 +48,6 @@ const event = (fx: Fixture): { type: "context"; messages: AgentMessage[] } => ({
 
 const jsonEqual = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-/** Async wrapper matching the old handler's shape for the timing loop. */
 const referenceCallAsync = async (fx: Fixture, ev: { type: "context"; messages: AgentMessage[] }) => referenceCall(fx, ev);
 
 function warningsCheck(fx: Fixture, label: string): void {
@@ -114,7 +85,6 @@ async function scenarioAppended(): Promise<void> {
 	if (fx.counters.reads > appends + 1) fail(`${fx.counters.reads} reads > ${appends} appended + 1 ancestor probe`);
 	if (!jsonEqual(result, reference)) fail(`output differs from reference`);
 	if (!failed) ok(`+${appends} entries: ${fx.counters.reads} reads (≤ ${appends + 1}), 0 copies, output identical`);
-	// Follow-up call on the now-unchanged branch must read nothing.
 	fx.resetCounters();
 	const again = await fx.call(ev.messages);
 	if (fx.counters.reads !== 0) fail(`steady call: ${fx.counters.reads} reads (want 0)`);
@@ -130,7 +100,6 @@ async function scenarioRendered(): Promise<void> {
 	const result = await fx.call(ev.messages);
 	if (!jsonEqual(result, reference)) fail(`rendered output differs from reference`);
 	else ok(`rendered: messages byte-identical (payload after compactionSummary)`);
-	// Steady call on unchanged rendered branch: 0 reads.
 	fx.resetCounters();
 	const again = await fx.call(ev.messages);
 	if (fx.counters.reads !== 0 || fx.counters.copies !== 0) fail(`steady: ${fx.counters.reads} reads ${fx.counters.copies} copies`);
@@ -146,10 +115,6 @@ async function scenarioUnrendered(): Promise<void> {
 	const reference = referenceCall(fx, ev);
 	const result = await fx.call(ev.messages);
 	if (reference === undefined) {
-		// Render may succeed (payload) or fail (undefined + warn) in the
-		// stubbed ctx; both are unchanged pre-fix arms. A payload must carry
-		// one appended snapshot entry keyed by this compaction and sit after
-		// the summary.
 		const appended = fx.raw.getBranchView().slice(before);
 		if (result === undefined) {
 			if (appended.length !== 0) fail(`undefined output but ${appended.length} entries appended`);
@@ -167,14 +132,12 @@ async function scenarioUnrendered(): Promise<void> {
 			else ok(`unrendered: snapshot appended + payload after summary (rendered path intact)`);
 		}
 	}
-	// Next call sees the appended snapshot as a new suffix and must go rendered.
 	if (result !== undefined) {
 		const reference2 = referenceCall(fx, ev);
 		const next = await fx.call(ev.messages);
 		if (!jsonEqual(next, reference2)) fail(`post-append call differs from reference`);
 		else ok(`post-append: rendered via suffix scan, byte-identical`);
 	}
-	// A render failure warns once — it is the unchanged error path, not a bug.
 	for (const warning of fx.warnings) if (!warning.includes("Post-compaction ctx attachment failed")) fail(`unexpected warn: ${warning}`);
 }
 
@@ -183,18 +146,12 @@ async function scenarioNavigation(): Promise<void> {
 	appendCompactionWithSnapshot(fx.raw);
 	const ev = event(fx);
 	await fx.call(ev.messages);
-	// Branch off below the snapshot: the new branch keeps the compaction but
-	// loses its snapshot entry → boundary becomes unrendered; leaf changed
-	// and the ancestor probe fails → full rescan.
 	const view = fx.raw.getBranchView();
 	fx.raw.branchWithSummary(view.at(-2)?.id ?? null, "sibling");
 	const before = fx.raw.getBranchView().length;
 	const ev2 = event(fx);
 	fx.resetCounters();
 	const result = await fx.call(ev2.messages);
-	// A full rescan on this branch early-exits at the compaction in a few
-	// reads; what proves re-derivation is the unrendered outcome below plus
-	// the next call's byte-equality with the reference.
 	if (fx.counters.reads === 0) fail(`sibling navigation: 0 reads — offset reused across a leaf change`);
 	const appended = fx.raw.getBranchView().slice(before);
 	if (result !== undefined) {
@@ -208,7 +165,6 @@ async function scenarioNavigation(): Promise<void> {
 	} else {
 		ok(`sibling branch: ${fx.counters.reads} reads (full rescan), unrendered → render failed as on old path`);
 	}
-	// Follow-up call must equal the reference on the (possibly appended) branch.
 	const reference2 = referenceCall(fx, ev2);
 	const next = await fx.call(ev2.messages);
 	if (!jsonEqual(next, reference2)) fail(`post-navigation call differs from reference`);
@@ -225,14 +181,6 @@ async function scenarioNoCompaction(): Promise<void> {
 	const fx = makeFixture("no-compaction");
 	const ev = event(fx);
 	await fx.call(); // cold call seeds the offset; steady state is what §4 measures
-	// Timing is steady-state: per-round medians over 100-call loops (a per-call
-	// gc would measure JIT cold-start, not the trigger). Allocation metrics
-	// follow §4 literally — gc, measure, one call, measure. On this Bun build
-	// process.memoryUsage().heapUsed does not reflect array/storage
-	// allocations (0 delta even for 50k live objects), so heapUsed is
-	// reported as measured and the allocation gate uses deterministic
-	// counters: getBranch copies (instrumented) and the JSC heapStats
-	// Array object-count delta.
 	const rounds = 30;
 	const callsPerRound = 100;
 	const refTime: number[] = [];
@@ -279,8 +227,6 @@ async function scenarioNoCompaction(): Promise<void> {
 	const timeRatio = mt / nt;
 	console.log(`ratios:    ${timeRatio.toFixed(1)}× faster; Array objects/call ${na} vs ${ma}; heapUsed ${nh} vs ${mh} bytes`);
 	if (!(nt * 10 <= mt)) fail(`time ratio ${timeRatio.toFixed(1)}× < 10×`);
-	// Allocation gate: the reference materializes ≥1 Array (the getBranch
-	// copy) per call; the bounded call must not materialize the branch.
 	if (!(ma >= 1 && na < ma)) fail(`Array objects ${na} not below reference ${ma}`);
 }
 

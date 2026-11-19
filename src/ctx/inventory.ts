@@ -27,18 +27,7 @@ const SUMMARY_KEYS = ["summary", "report", "report_path", "review", "verdict", "
 const STRUCTURED_SUMMARY_KEYS = ["implementation", "result", "outcome", "conclusion", "notes"] as const;
 const SUMMARY_SCAN_LIMIT = 64;
 const SIDECAR_SUMMARY_PATTERN = '"(?:summary|report|report_path|review|verdict|assessment|advice|status|findings)"\\s*:';
-/**
- * Matches the first-line session header JSON object emitted by OMP into
- * each `*.jsonl` transcript (`{"type":"session","id":"…","timestamp":…}`).
- * `readSpawnHeader` stops reading a transcript once this and
- * `SESSION_INIT_PATTERN` have matched; a hit is parsed by `parseSessionHeader`.
- */
 const SESSION_HEADER_PATTERN = /"type"\s*:\s*"session"/;
-/**
- * Matches the `session_init` record OMP writes after the header line;
- * `readSpawnHeader` uses it to recover the spawned agent flavor
- * (`"agent":"task:low"`), parsed by `parseSessionInitAgent`.
- */
 const SESSION_INIT_PATTERN = /"type"\s*:\s*"session_init"/;
 const HEADER_READ_CHUNK_BYTES = 64 * 1024;
 const HEADER_READ_CONCURRENCY = 16;
@@ -221,7 +210,6 @@ function parseJsonValue(text: string): unknown | undefined {
 	try {
 		return JSON.parse(trimmed);
 	} catch {
-		// A malformed JSON fragment cannot supply a summary.
 		return undefined;
 	}
 }
@@ -239,7 +227,6 @@ function oneLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
-/** `value` on one line, cut at the last word boundary before `limit` when one sits in its last third. */
 function truncate(value: string, limit = SUMMARY_LIMIT): string {
 	const normalized = oneLine(value);
 	if (normalized.length <= limit) return normalized;
@@ -248,7 +235,6 @@ function truncate(value: string, limit = SUMMARY_LIMIT): string {
 	return `${space >= (limit * 2) / 3 ? hard.slice(0, space) : hard}…`;
 }
 
-/** A summary cell from free text: its first non-empty line, heading markers removed. */
 function summaryCell(text: string): SummaryCell {
 	for (const raw of text.split(/\r?\n/)) {
 		const line = raw.replace(/^\s*#+\s*/, "").trim();
@@ -257,9 +243,7 @@ function summaryCell(text: string): SummaryCell {
 	return { kind: "none" };
 }
 
-/** The text of a JSON string literal cut off by a grep column limit (`"abc\n…` without its closing quote). */
 function partialJsonString(raw: string): string {
-	// Drop a dangling escape or unicode escape the cut split, then close the literal.
 	const body = raw
 		.slice(1)
 		.replace(/"$/, "")
@@ -361,7 +345,6 @@ function summaryCellFromLine(line: string): SummaryCell | undefined {
 	try {
 		value = JSON.parse(rawValue);
 	} catch {
-		// Partial grep lines may contain an unfinished quoted value.
 		if (rawValue.startsWith('"')) {
 			value = partialJsonString(rawValue);
 		} else if (rawValue.startsWith("'")) {
@@ -435,7 +418,6 @@ function refsFromRegistry(): AgentRef[] {
 			.list()
 			.filter((ref) => ref.kind !== "advisor");
 	} catch {
-		// The registry may be unavailable for disk-only recall.
 		return [];
 	}
 }
@@ -500,7 +482,6 @@ async function nativeGlob(root: string | undefined, pattern: string): Promise<Gl
 		});
 		return result.matches;
 	} catch {
-		// Missing or unreadable artifact directories have no discoverable files.
 		return [];
 	}
 }
@@ -536,11 +517,6 @@ function parseSessionInitAgent(line: string): string | undefined {
 	return textField(parsed.agent);
 }
 
-/**
- * First session-header and `session_init` lines of one transcript. Reads from the
- * start and stops once both have matched, so cost tracks the head of the file
- * (the header plus the init record's system prompt), not the whole transcript.
- */
 async function readSpawnHeader(file: string): Promise<SpawnHeader | undefined> {
 	let handle: FileHandle | undefined;
 	try {
@@ -577,21 +553,12 @@ async function readSpawnHeader(file: string): Promise<SpawnHeader | undefined> {
 		const base = parseSessionHeader(headerLine);
 		return agent ? { ...base, agent } : base;
 	} catch {
-		// Missing or unreadable transcripts have no recoverable spawn header.
 		return undefined;
 	} finally {
-		if (handle)
-			await handle.close().catch(() => {
-				// Closing an already unavailable transcript must not fail recall.
-			});
+		if (handle) await handle.close().catch(() => {});
 	}
 }
 
-/**
- * Spawn headers keyed by relative transcript path. Unchanged transcripts (same
- * mtime + size as the cached entry) reuse the cached header; only new or changed
- * ones are read, with bounded concurrency.
- */
 async function headersFor(root: string | undefined, matches: readonly GlobMatch[]): Promise<ReadonlyMap<string, SpawnHeader>> {
 	const active = matches.filter((match) => !path.posix.basename(normalizedRelativePath(match.path)).startsWith("__advisor"));
 	if (!root || active.length === 0) return new Map();
@@ -756,7 +723,6 @@ async function readTextFile(file: string): Promise<string | undefined> {
 	try {
 		return await readFile(file, "utf8");
 	} catch {
-		// Missing or unreadable sidecars do not contribute a handoff.
 		return undefined;
 	}
 }
@@ -769,7 +735,6 @@ async function readPrefixTextFile(file: string): Promise<string | undefined> {
 		const result = await handle.read(bytes, 0, bytes.length, 0);
 		return new TextDecoder().decode(bytes.subarray(0, result.bytesRead));
 	} catch {
-		// Missing or unreadable sidecars do not contribute a prefix summary.
 		return undefined;
 	} finally {
 		if (handle)
@@ -892,7 +857,6 @@ async function sidecarSummaryMatches(
 					hidden: true,
 				});
 			} catch {
-				// Missing or unreadable sidecar directories have no searchable summaries.
 				const matches: GrepMatch[] = [];
 				return { matches };
 			}
@@ -962,7 +926,6 @@ async function taskLogFor(
 	return { counts, timeline, goal };
 }
 
-/** The last schema-valid goal record wins, independently of todo timeline replay. */
 function taskLogGoal(content: string): TaskLogGoal | undefined {
 	const lines = content.split(/\r?\n/);
 	for (let index = lines.length - 1; index >= 0; index--) {
@@ -1099,18 +1062,6 @@ type InternalTaskState =
 	| { kind: "removed"; atMs: number }
 	| { kind: "open"; atMs: number; blocked?: string };
 
-/**
- * Materializes the per-task latest state from a task-log so the timeline
- * shows what actually got done vs. what is still open, with each task
- * appearing once. Updates (block/unblock, re-start) and removals
- * (rm, drop) collapse into the latest observable state; removed and
- * dropped tasks are elided from the rendered timeline.
- *
- * `init` clears everything since it replaces the whole task list.
- * `append` carries no task names (only a count) so it cannot seed
- * entries here; those tasks surface once they are touched.
- * `done all tasks` marks every non-removed task done at that moment.
- */
 function taskLogTimeline(content: string): TaskTimeline {
 	const tasks = new Map<string, InternalTaskState>();
 	for (const line of content.split(/\r?\n/)) {
@@ -1232,11 +1183,6 @@ async function subagentHandoff(directory: string, id: string, snapshots: FileSna
 	return { summary: { kind: "none" }, handoff: "(none)" };
 }
 
-/**
- * One snapshot of the context tree (registry, transcripts, sidecars, task logs).
- * Build it once per request and pass it to every renderer that should observe
- * the same state.
- */
 export async function buildInventory(ctx: ExtensionContext): Promise<Inventory> {
 	const options = localOptionsFor(ctx);
 	const localRoot = path.resolve(resolveLocalRoot(options));
@@ -1337,7 +1283,6 @@ function sidecarNeeds(
 			const metadata = inventory.sidecars.metadataByPath.get(file);
 			if (!metadata) continue;
 			const cached = cachedSidecar(file, metadata);
-			// sidecarSummaryFor stops at the first non-empty candidate, so later ones are never read.
 			if (cached) {
 				if (cached.kind !== "empty" && cached.content === "nonempty") break;
 				continue;
@@ -1359,9 +1304,6 @@ function handoffSummaryCell(handoff: string): SummaryCell {
 	return { kind: "none" };
 }
 
-// The current session's list summary: prefer a snippet of the actual handoff
-// (goal/progress) over the compaction placeholder shortSummary, falling back to
-// the first user prompt. `ctx show` still renders the full handoff.
 function currentNodeData(inventory: Inventory): NodeData {
 	const fromHandoff = handoffSummaryCell(inventory.currentCompactionHandoff);
 	const summary: SummaryCell =
@@ -1647,13 +1589,6 @@ async function hydrateShow(inventory: Inventory, target: ContextDraft): Promise<
 	return materialize(inventory.root, data);
 }
 
-/**
- * `ctx list` rendering as a plain string. The default view hides internal
- * contexts (mentor/discuss/trace), showing the current session and its
- * `task` subagents; `all` includes everything. `id` expands the subtree
- * rooted at that context. Returns `undefined` only when `id` is given but
- * not found, so the caller can error with the set of known ids.
- */
 async function renderCtxListText(
 	inventory: Inventory,
 	options: { id?: string; all?: boolean } = {},
@@ -1684,10 +1619,6 @@ async function renderCtxListText(
 	return { text, total, shown: rendered.length, hidden: hiddenCount };
 }
 
-/**
- * `ctx show <id>` rendering as a plain string; `id` defaults to the current
- * session. Returns `undefined` when the id is not in the inventory.
- */
 async function renderCtxShowText(inventory: Inventory, id: string | undefined): Promise<{ text: string; id: string } | undefined> {
 	const requestedId = id?.trim() || inventory.current.id;
 	const target = findDraft(inventory.root, requestedId);
@@ -1697,7 +1628,6 @@ async function renderCtxShowText(inventory: Inventory, id: string | undefined): 
 	return { text: renderShow(shownNode, parentChain(root, target.id)), id: target.id };
 }
 
-/** `node`'s roster rows at `depth`: itself when worthy or when a descendant is, then those descendants. */
 function rosterLines(node: ContextNode, depth: number): { lines: string[]; omitted: number } {
 	const lines: string[] = [];
 	let omitted = 0;
@@ -1707,19 +1637,12 @@ function rosterLines(node: ContextNode, depth: number): { lines: string[]; omitt
 		childLines.push(...sub.lines);
 		omitted += sub.omitted;
 	}
-	// A row carries something the model can act on: a live agent, or a finished one's result.
 	const worthy = node.status === "running" || node.status === "idle" || node.summary.kind === "text";
 	if (worthy || childLines.length > 0) lines.push(renderNodeLine(node, depth), ...childLines);
 	else omitted += 1;
 	return { lines, omitted };
 }
 
-/**
- * The `task` subagents under the current session, one `ctx list` row each:
- * running and idle ones always, finished ones (parked, aborted, on disk) only
- * with a result summary. Internal contexts (mentor/discuss/trace) and the
- * current session itself are left out. `undefined` when no row qualifies.
- */
 export async function renderSubagentRoster(inventory: Inventory): Promise<{ text: string; shown: number; omitted: number } | undefined> {
 	const pruned = pruneChildren(inventory.root, (node) => classifyContext(node) === "task");
 	const nodes = pruned.children.flatMap((child) => flattenDraft(child).map((entry) => entry.node));

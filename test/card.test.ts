@@ -7,13 +7,6 @@ import { TODO_TOOL_DEFINITION } from "../index.ts";
 import type { TodoMoreSnapshot } from "../src/state.ts";
 import type { TodoMoreDetails } from "../src/tool.ts";
 
-/**
- * One `todo` call paints one card. The host renders the call body and the result
- * body of a non-merged renderer in the same block, so the registered definition
- * must merge them; this drives the real `ToolExecutionComponent` through the
- * host's own wrapper chain and reads the rendered card.
- */
-
 const PREVIEW_MARKER = "Preview only — not committed.";
 const PREVIEW_ROLE = "todo-more.preview";
 const PANEL_ROLE = "todo-more.panel";
@@ -71,22 +64,14 @@ const result: { content: { type: "text"; text: string }[]; details: TodoMoreDeta
 	},
 };
 
-/** The component only calls `requestRender`/`requestComponentRender`; no terminal is needed. */
 const headlessUi: TUI = { requestRender() {}, requestComponentRender() {} } as unknown as TUI;
-/** The adapter stores the runner and uses it only in `execute`, which this card test never calls. */
 const unusedRunner = undefined as unknown as ExtensionRunner;
 
-/**
- * The card path never reads the parameter schema, and the registry slot that
- * `RegisteredToolAdapter` takes erases `TParams` (its `renderCall` is typed over
- * `unknown`), while this definition's hooks are typed over its own schema.
- */
 const registered = {
 	definition: TODO_TOOL_DEFINITION,
 	extensionPath: "test/card.test.ts",
 	sourceInfo: { path: "test/card.test.ts", source: "extension", scope: "project", origin: "package" },
 } as RegisteredTool;
-/** The tool object the transcript receives: extension definition → adapter → interceptor wrapper. */
 const renderedTool = new ExtensionToolWrapper(new RegisteredToolAdapter(registered, unusedRunner), unusedRunner);
 
 function component(): ToolExecutionComponent {
@@ -108,7 +93,6 @@ function settle(target: ToolExecutionComponent): void {
 	target.updateResult({ content: result.content, details: result.details }, false, "todo-call");
 }
 
-/** Every string the native card tree carries, in render order. */
 function nativeStrings(target: ToolExecutionComponent): string[] {
 	const found: string[] = [];
 	const walk = (value: unknown): void => {

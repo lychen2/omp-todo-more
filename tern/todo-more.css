@@ -1,7 +1,5 @@
-/* OMP's nativeDock has fourteen stable source slots (interactive-mode.ts).
- * Preserve every slot and its native sizing; overlay only Todo More's row in
- * the existing activity track. The original Todo remains an invisible layout
- * reference, not an emptied domain projection. Revalidate on dock changes.
+/* Preserve every slot and its native sizing; overlay only Todo More's row in
+ * the existing activity track. Revalidate on dock changes.
  * The column is a definite 100% track, not 1fr: Tern's grid sizes an fr track
  * through its items' intrinsic widths, and a relayout after an edit (window or
  * pane resize) then left the composer text at min-content width, one glyph. */
@@ -21,7 +19,6 @@
 .sf-dock[data-surface="omp.session"] > .sf-void {
 	margin-top: 0;
 }
-/* Keep empty source tracks occupied without reviving hidden pill-row spacing. */
 .sf-dock[data-surface="omp.session"] > .sf-void {
 	display: flex !important;
 	height: 0;
@@ -40,8 +37,6 @@
 .sf-dock[data-surface="omp.session"] > :nth-child(7) { grid-row: 7; }
 .sf-dock[data-surface="omp.session"] > :nth-child(8) { grid-row: 8; }
 .sf-dock[data-surface="omp.session"] > :nth-child(9) { grid-row: 9; margin-top: 0; }
-/* Keep the original activity row and its grid overlay's margins equal. The
- * preceding flex gap exists only after a visible source, and not in Spine. */
 .sf-dock[data-surface="omp.session"]:not(.sf-chat-spine)
 	> :nth-child(9):nth-child(n + 2 of :not(.sf-void):not(.sf-hidden)),
 .sf-dock[data-surface="omp.session"]:not(.sf-chat-spine)
@@ -58,7 +53,6 @@
 	display: contents;
 	margin-top: 0;
 }
-/* Project the original below-widget column's centering into grid items. */
 .sf-dock[data-surface="omp.session"] > :nth-child(14) > * {
 	grid-column: 1;
 	justify-self: center;
@@ -81,9 +75,6 @@
 	justify-self: center;
 	pointer-events: none;
 }
-/* Spine removes the dock gap and gives unroled widget columns their own
- * padding/gap. Project that column rhythm, not Reader's centering, through
- * display:contents; keep the original native below-widget background band. */
 .sf-chat-spine.sf-dock[data-surface="omp.session"] {
 	--todo-more-below-top: 12px;
 	--todo-more-below-bottom: 10px;
@@ -129,15 +120,11 @@
 }
 
 
-/* Keep the popup beside, not inside, the hovered disclosure. The native Todo
- * role gives this wrapper the original pill's activity-row sizing and margins. */
 	:is([aria-label="Todo More pill"], [aria-label="Todo More 待办条"]) {
 	position: relative;
 	min-width: 0;
 }
 
-/* A bare native card provides the sole accessible disclosure control. Its
- * always-visible body retains the actual checklist's intrinsic pill visuals. */
 	:is([aria-label="Todo More disclosure"], [aria-label="Todo More 展开项"]) {
 	position: relative;
 	overflow: visible;
@@ -196,14 +183,11 @@
 [data-role="todo-more.visual"] .sf-ck-pop {
 	display: none;
 }
-/* Preserve omp-composer.css's conditional clearance across the dock adapter. */
 .sf-dock[data-surface="omp.session"] > .sf-row[data-role="omp.hud"]:not(.sf-hidden):not(.sf-void)
 	+ .sf-row[data-role="omp.hud.activity"] + * + * + * + * + :nth-child(14)
 	:is([aria-label="Todo More progress"], [aria-label="Todo More 进度"]) {
 	--todo-more-hud-clear: var(--sf-hud-clear, 34px);
 }
-/* Match omp-tools.css's .sf-ck-pop directly. The relative native-sized wrapper
- * keeps the popup above the pill without extending the disclosure's hover area. */
 [data-role="todo-more.popover"] {
 	box-sizing: border-box;
 	position: absolute;

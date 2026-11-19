@@ -1,10 +1,3 @@
-/**
- * Records successful todo/goal mutations from tool_result for main and sub sessions.
- * Appends timestamped lines to local://task-log/<agent-id>.md, expanding committed
- * todo-more changes in order and adding a set line only for an operation's own
- * goal. Reads that file's metadata to add its heading once. Read-only operations are not logged.
- * Writes are serialized and failures are warned without failing the host hook.
- */
 import { appendFile, mkdir, stat } from "node:fs/promises";
 import { dirname, resolve as resolvePath } from "node:path";
 import { type ExtensionAPI, type ExtensionContext, z } from "@oh-my-pi/pi-coding-agent";
@@ -214,17 +207,14 @@ function formatTodoMoreChanges(changes: TodoMoreChange[], timestamp: string, sna
 	const lines: string[] = [];
 	for (const change of changes) {
 		if (change.op !== "goal" && change.op !== "estimate") {
-			// Each change describes its own operation, not the batch's final projection.
 			const detail = formatTodoDetail(change.op, change, undefined);
 			if (detail !== undefined) lines.push(`- ${timestamp} todo ${change.op}: ${detail}${commitDetail(change, snapshot)}`);
 		}
-		// The existing history vocabulary has no estimate event; retain that policy without dropping the rest of a batch.
 		if (change.goal !== undefined) lines.push(`- ${timestamp} todo-more set: ${JSON.stringify(change.goal)}`);
 	}
 	return lines.join("\n");
 }
 
-/** The commit a completion made, as the item it closed recorded it. */
 function commitDetail(change: TodoMoreChange, snapshot: TodoMoreSnapshot | undefined): string {
 	if (change.op !== "done" || snapshot === undefined) return "";
 	const phases = change.phase === undefined ? snapshot.phases : snapshot.phases.filter((phase) => phase.name === change.phase);
@@ -284,7 +274,6 @@ async function appendTaskLog(path: string, agentId: string, line: string): Promi
 	try {
 		needsHeader = (await stat(path)).size === 0;
 	} catch {
-		// Missing or inaccessible task logs need a heading on the next append.
 		needsHeader = true;
 	}
 	if (needsHeader) await appendFile(path, `# Task log: ${agentId}\n`, "utf8");

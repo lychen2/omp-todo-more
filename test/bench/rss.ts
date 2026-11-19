@@ -1,16 +1,3 @@
-/**
- * Real-process RSS for the #24 tree (oh-my-omp/omp-todo-more#32, row 3): one
- * `omp -p --continue` model call on a session of §4 shape, the checkout's
- * extension loaded alone, peak resident set size from `/usr/bin/time -l`.
- *
- * Everything runs in a throwaway root (HOME, PI_CODING_AGENT_DIR,
- * --session-dir, cwd) against the parity mock provider, which answers every
- * request with "ok"; the machine's ~/.omp is never read or written.
- * `--variant baseline` runs with `todo.enabled: false` (what 0.1.32 needs),
- * `candidate` with the default `true`.
- *
- *   bun test/bench/rss.ts --src <checkout> --variant <baseline|candidate> [--entries 5000] [--runs 5]
- */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";

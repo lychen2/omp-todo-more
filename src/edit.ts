@@ -15,7 +15,6 @@ const editSchema = z.union([
 	z.object({ kind: z.literal("explain"), title: nonEmpty, explanation: nonEmpty }),
 ]);
 
-/** Edits only its target field; all other fields belong to the latest branch, not the draft. */
 export function applyTodoEdit(state: TodoMoreState, edit: TodoEdit): AppliedEdit {
 	if (state.kind === "empty") return { kind: "rejected", message: tr("Todo list is empty.", "待办列表为空。") };
 	const parsed = editSchema.safeParse(edit);

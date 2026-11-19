@@ -62,11 +62,9 @@ type Params = {
 	readonly reason?: string;
 	readonly explanation?: string;
 	readonly estimatedMinutes?: number;
-	/** The commit this completion owes, as the document asked for it. */
 	readonly commit?: TodoCommitClause;
 };
 
-/** Mutable working copy of the list while one call applies. */
 type WorkItem = {
 	title: string;
 	explanation: Explanation;
@@ -77,11 +75,9 @@ type WorkItem = {
 };
 type WorkPhase = { name: string; items: WorkItem[] };
 
-/** Details of every result: native-compatible fields for the host, plus the marker and the snapshot for todo-more readers. */
 export type TodoMoreDetails = {
 	op?: (typeof RESULT_OPS)[number];
 	operations?: Op[];
-	/** Accepted logical operations, in application order; absent on VIEW and rejected calls. */
 	changes?: Params[];
 	phases: HostTodoPhase[];
 	storage: "session" | "memory";
@@ -93,7 +89,6 @@ export type TodoMoreDetails = {
 const working = (state: TodoMoreState): WorkPhase[] =>
 	state.kind === "empty" ? [] : state.phases.map((phase) => ({ name: phase.name, items: phase.items.map((item) => ({ ...item })) }));
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#findTaskByContent
 function findTask(phases: WorkPhase[], title: string): { item: WorkItem; phase: WorkPhase } | undefined {
 	for (const phase of phases) {
 		const item = phase.items.find((candidate) => candidate.title === title);
@@ -101,9 +96,7 @@ function findTask(phases: WorkPhase[], title: string): { item: WorkItem; phase: 
 	}
 	return undefined;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#getCompletionTransitions
 function completionTransitions(previous: WorkPhase[], updated: WorkPhase[]): TodoCompletionTransition[] {
 	const previousStatuses = new Map<string, TodoStatus>();
 	for (const phase of previous) {
@@ -119,9 +112,7 @@ function completionTransitions(previous: WorkPhase[], updated: WorkPhase[]): Tod
 	}
 	return transitions;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#normalizeInProgressTask
 function normalizeInProgress(phases: WorkPhase[]): void {
 	const ordered = phases.flatMap((phase) => phase.items);
 	if (ordered.length === 0) return;
@@ -133,9 +124,7 @@ function normalizeInProgress(phases: WorkPhase[]): void {
 	const firstPending = ordered.find((item) => item.status === "pending");
 	if (firstPending) firstPending.status = "in_progress";
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#resolveTaskOrError
 function resolveTask(phases: WorkPhase[], title: string | undefined, errors: string[]): { item: WorkItem; phase: WorkPhase } | undefined {
 	if (!title) {
 		errors.push("Missing task content");
@@ -155,9 +144,7 @@ function resolveTask(phases: WorkPhase[], title: string | undefined, errors: str
 	}
 	return hit;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#resolvePhaseOrError
 function resolvePhase(phases: WorkPhase[], name: string | undefined, errors: string[]): WorkPhase | undefined {
 	if (!name) {
 		errors.push("Missing phase name");
@@ -167,9 +154,7 @@ function resolvePhase(phases: WorkPhase[], name: string | undefined, errors: str
 	if (!phase) errors.push(`Phase "${name}" not found`);
 	return phase;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#getTaskTargets
 function targets(phases: WorkPhase[], params: Params, errors: string[]): WorkItem[] {
 	if (params.task) {
 		const hit = resolveTask(phases, params.task, errors);
@@ -181,7 +166,6 @@ function targets(phases: WorkPhase[], params: Params, errors: string[]): WorkIte
 	}
 	return phases.flatMap((phase) => phase.items);
 }
-// @upstream-end
 
 const explained = (item: ItemParam): WorkItem => ({
 	title: item.title,
@@ -196,7 +180,6 @@ const explained = (item: ItemParam): WorkItem => ({
 	status: "pending",
 });
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#initPhases
 function initPhases(params: Params, errors: string[]): WorkPhase[] {
 	const list = params.list;
 	if (!list) {
@@ -215,9 +198,7 @@ function initPhases(params: Params, errors: string[]): WorkPhase[] {
 	}
 	return list.map((entry) => ({ name: entry.phase, items: entry.items.map(explained) }));
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#appendItems
 function appendItems(phases: WorkPhase[], params: Params, errors: string[]): WorkPhase[] {
 	if (!params.phase) {
 		errors.push("Missing phase name for append operation");
@@ -245,9 +226,7 @@ function appendItems(phases: WorkPhase[], params: Params, errors: string[]): Wor
 	phase.items.push(...params.items.map(explained));
 	return phases;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#removeTasks
 function removeTasks(phases: WorkPhase[], params: Params, errors: string[]): WorkPhase[] {
 	if (params.task) {
 		const hit = resolveTask(phases, params.task, errors);
@@ -262,9 +241,7 @@ function removeTasks(phases: WorkPhase[], params: Params, errors: string[]): Wor
 	for (const phase of phases) phase.items = [];
 	return phases;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#applyEntry
 function applyOp(phases: WorkPhase[], params: Params, errors: string[]): WorkPhase[] {
 	switch (params.op) {
 		case "init":
@@ -289,7 +266,6 @@ function applyOp(phases: WorkPhase[], params: Params, errors: string[]): WorkPha
 				errors.push("block requires a task or phase target");
 				return phases;
 			}
-			// One line: the note rides on one Markdown checklist line and one HUD/summary line.
 			const reason = params.reason?.replace(/\s+/g, " ").trim() || undefined;
 			for (const item of targets(phases, params, errors)) {
 				if (item.status !== "pending" && item.status !== "in_progress" && item.status !== "blocked") continue;
@@ -343,9 +319,7 @@ function applyOp(phases: WorkPhase[], params: Params, errors: string[]): WorkPha
 		}
 	}
 }
-// @upstream-end
 
-/** Items introduced by an initialization or append block. */
 function addedItems(params: Params): ItemParam[] {
 	switch (params.op) {
 		case "init":
@@ -370,13 +344,11 @@ function addedItems(params: Params): ItemParam[] {
 	}
 }
 
-/** The budget rules a call is checked against: the per-item cap from the settings, and the budgets the branch already warned as overtime. */
 type BudgetRules = { readonly leafMaxMinutes: number; readonly overtimeWarned: ReadonlySet<string> };
 
 const overCap = (title: string, minutes: number, cap: number): string =>
 	`Task "${title}" estimate ${minutes} min exceeds the ${cap}-minute limit for one item: split the work into several items of at most ${cap} min each`;
 
-/** todo-more's rules on top of the native ones. */
 function ruleErrors(params: Params, previous: TodoMoreState, rules: BudgetRules): string[] {
 	const errors: string[] = [];
 	const hasGoal = previous.kind === "list" && previous.goal.kind === "set";
@@ -407,7 +379,6 @@ function ruleErrors(params: Params, previous: TodoMoreState, rules: BudgetRules)
 				? previous.phases.find((candidate) => candidate.items.some((item) => item.title === params.task))
 				: undefined;
 		const time = phase?.items.find((item) => item.title === params.task)?.time;
-		// A warned budget is closed: more time only comes as new items, never a longer estimate.
 		if (
 			phase !== undefined &&
 			time?.kind === "estimated" &&
@@ -425,7 +396,6 @@ function ruleErrors(params: Params, previous: TodoMoreState, rules: BudgetRules)
 
 const isOpen = (status: TodoStatus): boolean => status === "pending" || status === "in_progress";
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#formatSummary
 function formatSummary(state: TodoMoreState, errors: readonly string[], readOnly: boolean): string {
 	const lines: string[] = [];
 	if (errors.length > 0) lines.push(`Errors: ${errors.join("; ")}`);
@@ -492,7 +462,6 @@ function formatSummary(state: TodoMoreState, errors: readonly string[], readOnly
 	}
 	return lines.join("\n");
 }
-// @upstream-end
 
 const storageOf = (session: TodoSession): "session" | "memory" => (session.sessionManager.getSessionFile() ? "session" : "memory");
 
@@ -515,7 +484,6 @@ function result(
 	return extra.isError ? { content: [{ type: "text", text }], details, isError: true } : { content: [{ type: "text", text }], details };
 }
 
-/** Selectors are explicit: the quoted title "ALL" never means the ALL selector. */
 function targetParams(target: TodoTarget): Pick<Params, "task" | "phase"> {
 	switch (target.kind) {
 		case "task":
@@ -529,7 +497,6 @@ function targetParams(target: TodoTarget): Pick<Params, "task" | "phase"> {
 
 type Operations = { kind: "ok"; params: Params[] } | { kind: "invalid"; message: string };
 
-/** PHASE scopes additions only; each block is one existing logical append operation. */
 function operations(commands: TodoCommand[]): Operations {
 	const params: Params[] = [];
 	for (let index = 0; index < commands.length; index++) {
@@ -610,20 +577,10 @@ function operations(commands: TodoCommand[]): Operations {
 	return { kind: "ok", params };
 }
 
-/**
- * The working directory of the agent that spawned the session, read when a
- * completion needs it; `undefined` for a top-level session, or when the parent's
- * registry entry or live session is gone.
- */
 export type ParentCwd = () => string | undefined;
 
 const TOP_LEVEL: ParentCwd = () => undefined;
 
-/**
- * The git association: a completion that closes work commits it, and a
- * completion that would leave the checkout dirty is refused. A subagent in
- * its parent's worktree neither commits nor is refused: the parent integrates.
- */
 async function completeWithCommit(
 	session: TodoSession,
 	clause: TodoCommitClause | undefined,
@@ -679,11 +636,6 @@ async function completeWithCommit(
 	}
 }
 
-/**
- * Complete calls have one acceptance anchor; generated prefixes never reach this state path.
- * `parentCwd` locates the spawning agent's worktree for a subagent's `DONE`;
- * `leafMaxMinutes` is the per-item estimate cap read from the plugin settings for this call.
- */
 export async function runTodo(
 	session: TodoSession,
 	raw: unknown,
@@ -706,15 +658,12 @@ export async function runTodo(
 	let phases = working(previous);
 	let next = previous;
 	const notes: string[] = [];
-	// All internal transitions belong to this one atomic mutation, not separate visible work intervals.
 	const now = Date.now();
-	// Time spent waiting on the user in `ask` is not work time.
 	const waits = facts.waits;
 	const rules: BudgetRules = { leafMaxMinutes, overtimeWarned: facts.overtimeWarned };
 	for (const params of batch.params) {
 		const errors = ruleErrors(params, next, rules);
 		if (params.op === "goal" && next.kind === "empty") errors.push("GOAL requires a non-empty list; use INIT to create one");
-		// Git runs for the items this operation itself completes, before the branch is touched.
 		const alreadyCompleted =
 			params.op === "done"
 				? new Set(

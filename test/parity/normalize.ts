@@ -1,36 +1,6 @@
 /**
- * Turns one recording directory (run.ts output) into comparable text files:
- * run-specific values (uuids, timestamps, durations, temp paths, session ids)
- * become stable placeholders, numbered in order of first appearance, so two
- * recordings of the same scenario diff only where behavior differs.
- *
- * Bucketing rule (keep signal, drop jitter): wall-clock instants (ISO strings,
- * epoch numbers, local date/time text) collapse to an opaque placeholder —
- * the fact that an instant existed is the behavior, not its value. Measured
- * durations are quantized to a coarse bucket instead of deleted: a run one
- * bucket longer or shorter still diffs, jitter inside a bucket does not.
- * Bucketing rounds to NEAREST (not floor) because scripted timers fire at
- * round values (10 s grace, 60 s estimate, hint+60 s quota); rounding puts
- * the expected value mid-bucket. Buckets: millisecond durations → nearest
- * 10 s (`<key~10s>`), `elapsed … min` texts → nearest 0.5 min. Provider
- * latency (`duration`, `ttft`) and millisecond figures inside text (task
- * results, JSON embedded in strings) carry scheduler noise only and become
- * opaque. A scenario needing a tighter bound must script a wait wider than a
+ * A scenario needing a tighter bound must script a wait wider than a
  * bucket.
- *
- * Commit ids are never guessed from a regex: run.ts records `git rev-list
- * --all` into git-shas.txt and each listed sha (plus its 7-char prefix, the
- * short form the extension prints) becomes a `<sha#N>` placeholder numbered
- * like ids, since commit timestamps make every run's shas differ. Local clock text is
- * anchored: `YYYY-MM-DD`, `HH:MM:SS`, and `HH:MM` only after a clock-word
- * prefix ("scheduled for", "resets", "at"), so scripted content is untouched.
- *
- * Each scenario's `expect` strings must appear in the normalized output; a
- * missing marker fails normalization (exit 1) rather than silently recording
- * a scenario that never reached the behavior it claims to cover.
- *
- * Usage: bun test/parity/normalize.ts <recording dir> <out dir>
- * Writes per scenario: requests.txt, events.txt, session.txt, git.txt.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -41,42 +11,22 @@ type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const ISO = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
 const TMP_ROOT = /\/(?:private\/)?(?:var\/folders\/[^"\s]+?|tmp)\/todo-more-parity-(?:baseline|candidate)-[A-Za-z0-9]+/g;
-/** `YYYY-MM-DD` (after ISO runs, only non-ISO dates remain). */
 const LOCAL_DATE = /\b\d{4}-\d{2}-\d{2}\b/g;
-/** `HH:MM:SS` is precise enough to replace globally (ctx rows, task log). */
 const LOCAL_TIME_FULL = /\b\d{2}:\d{2}:\d{2}\b/g;
-/** `HH:MM` only right after a clock word — a bare HH:MM is too common in scripted text. */
 const LOCAL_TIME_SHORT = /(scheduled for|resets|reset estimated|重置|预计于|发送) (\d{2}:\d{2})/g;
-/** `elapsed X.XX min` durations inside reminder/overtime texts → nearest 0.5 min. */
 const ELAPSED_MIN = /elapsed (\d+\.\d+) min/g;
-/** Keys whose numeric values are wall-clock instants → opaque `<key>` placeholder. */
 const TIME_KEYS = new Set(["timestamp", "at", "startedAt", "runningSince", "created", "recordedAt", "since", "until", "end", "start"]);
-/** Keys whose numeric values are measured durations in milliseconds → nearest 10 s buckets. */
 const DURATION_MS_KEYS = new Set(["elapsedMs", "ms", "durationMs", "totalDurationMs", "timeUsedSeconds", "elapsedSeconds"]);
-/** Host tool timings (bash wall time, shell trace nanoseconds): scheduler noise → opaque `<key>`. */
 const TIMING_KEYS = new Set(["wallTimeMs", "ns", "t_ns", "dur_ns", "end_ns"]);
-/** Provider latency figures: scheduler noise, not behavior → opaque `<key>`. */
 const LATENCY_KEYS = new Set(["duration", "ttft"]);
-/**
- * The host decides where an extension tool that shadows a built-in sits in the
- * tool list (declared deviation: under native todo, `todo` takes the built-in
- * slot). Every rendering of that position — the `toolOrder` line, the system
- * prompt's tool list and eval's tool-name list — drops `todo`, in both variants.
- */
 const TODO_TOOL_LINE = /\n- [^\n`]+: `todo`/g;
 const TODO_TOOL_NAME = /`todo`, /g;
-/** Timings inside text: JSON embedded in strings, task-result durations, bash wall time. */
 const EMBEDDED_ELAPSED = /(\\?"elapsedMs\\?": )\d+/g;
 const TASK_DURATION = /duration=(\\?")\d+(?:\.\d+)?m?s/g;
-/** The bash tool's elapsed-time footer. */
 const BASH_WALL_TIME = /Wall time: \d+(?:\.\d+)? seconds/g;
-/** The host's dump file for a failed provider request: epoch plus a random suffix. */
 const RAW_HTTP_LOG = /(http-\d+-requests\/)<epoch>-[a-z0-9]+\.json/g;
-/** Host-owned widgets whose timing relative to the run end is scheduler noise. */
 const HOST_WIDGETS = new Set(["autoresearch"]);
-/** Epoch milliseconds embedded in strings (2001–2286). */
 const EPOCH_MS = /\b1\d{12}\b/g;
-/** Keys whose string values are per-run identifiers; they share one namespace, so a parentId matches its entry id. */
 const ID_KEYS = new Set([
 	"id",
 	"parentId",
@@ -104,7 +54,6 @@ class Placeholders {
 	}
 }
 
-/** Commit ids from the run's own `git rev-list --all`, full sha first so the 7-char prefix never leaks. */
 function readShas(dir: string): { full: string; short: string }[] {
 	const file = path.join(dir, "git-shas.txt");
 	if (!existsSync(file)) return [];
@@ -148,7 +97,6 @@ function normalize(value: Json, names: Placeholders, shas: readonly { full: stri
 	}
 	if (typeof value === "string") {
 		if (key !== undefined && ID_KEYS.has(key)) return names.get("id", value);
-		// A digest of the system prompt, which the requests channel compares in full.
 		if (key === "data" && /^[0-9a-f]{12,16}$/.test(value)) return "<digest>";
 		return normalizeString(value, names, shas);
 	}
@@ -171,12 +119,6 @@ function field(value: Json, key: string): Json | undefined {
 	return value !== null && typeof value === "object" && !Array.isArray(value) ? value[key] : undefined;
 }
 
-/**
- * Provider requests: messages in full, tool definitions sorted by name; the
- * original tool order on its own line. Requests are grouped by model (stable,
- * in arrival order within a model): a subagent's model runs concurrently with
- * the main session's, so the global arrival order is scheduler noise.
- */
 function requestsText(records: Json[], names: Placeholders, shas: readonly { full: string; short: string }[]): string {
 	const perModel = new Map<string, number>();
 	return [...records]
@@ -206,7 +148,6 @@ function requestsText(records: Json[], names: Placeholders, shas: readonly { ful
 		.join("\n\n");
 }
 
-/** RPC frames that carry behavior; streaming deltas and cost telemetry are dropped. */
 const EVENT_TYPES = new Set([
 	"message_end",
 	"tool_execution_start",
@@ -222,12 +163,6 @@ const EVENT_TYPES = new Set([
 const PARALLEL_TOOL_FRAMES = new Set(["tool_execution_start", "tool_execution_end"]);
 const byCallId = new Intl.Collator("en", { numeric: true });
 
-/**
- * Tool calls of one assistant message run concurrently, so a run of adjacent
- * `tool_execution_start` (or `_end`) frames arrives in scheduler order. Each
- * such run is put in tool-call-id order (the mock's ids are deterministic)
- * before placeholders are numbered.
- */
 function canonicalToolOrder(frames: Json[]): Json[] {
 	const out: Json[] = [];
 	let run: Json[] = [];
@@ -285,7 +220,6 @@ for (const scenario of readdirSync(recording).sort()) {
 	const target = path.join(out, scenario);
 	mkdirSync(target, { recursive: true });
 	const shas = readShas(dir);
-	// One placeholder space per channel file: numbering then depends only on that channel's own content.
 	const files: [string, string][] = [
 		["requests.txt", `${requestsText(readJsonl(path.join(dir, "requests.jsonl")), new Placeholders(), shas)}\n`],
 		["events.txt", `${eventsText(readJsonl(path.join(dir, "events.jsonl")), new Placeholders(), shas)}\n`],

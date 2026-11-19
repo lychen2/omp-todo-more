@@ -1,19 +1,3 @@
-/**
- * Shared harness for `test/bench/post-compact-hint.ts` and
- * `test/post-compact-hint.test.ts`.
- *
- * The `context` handler runs through `registerPostCompactHint` against a real
- * `SessionManager.inMemory`, so leaf ids, `getBranchView` liveness and
- * `pi.appendEntry` → `appendCustomEntry` keep host semantics. Read accounting
- * is a Proxy over the view counting integer-index reads, plus a counter on
- * `getBranch()` copies.
- *
- * `referenceCall` is a verbatim copy of the pre-fix handler path (full
- * `getBranch()` copy + `boundaryState` over the whole branch). It is the
- * in-run baseline: same inputs, same outputs, so behavior equivalence and the
- * ≥10× cost drop do not depend on a separately measured baseline run.
- */
-
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@oh-my-pi/pi-coding-agent";
 import { z } from "@oh-my-pi/pi-coding-agent";
@@ -32,7 +16,6 @@ type BoundaryState =
 	| { readonly kind: "unrendered"; readonly compactionId: string }
 	| { readonly kind: "rendered"; readonly compactionId: string; readonly text: string };
 
-/** Verbatim pre-fix scan: walks the whole branch copy backwards. */
 function referenceBoundaryState(branch: readonly SessionEntry[]): BoundaryState {
 	let snapshot: { compactionId: string; text: string } | undefined;
 	for (let index = branch.length - 1; index >= 0; index--) {
@@ -50,7 +33,6 @@ function referenceBoundaryState(branch: readonly SessionEntry[]): BoundaryState 
 	return { kind: "none" };
 }
 
-/** Verbatim pre-fix `withPayload`. */
 function referenceWithPayload(messages: AgentMessage[], text: string): AgentMessage[] {
 	const payload: AgentMessage = {
 		role: "custom",
@@ -66,18 +48,12 @@ function referenceWithPayload(messages: AgentMessage[], text: string): AgentMess
 
 export type ContextResult = { readonly messages?: AgentMessage[] } | undefined;
 
-/**
- * The pre-fix handler: `getBranch()` copy, full scan, then the same switch.
- * The `unrendered` arm cannot re-render without the real inventory; it
- * returns `undefined`, matching the observable outcome of a render failure.
- */
 export function referenceCall(fixture: Fixture, event: { type: "context"; messages: AgentMessage[] }): ContextResult {
 	const state = referenceBoundaryState(fixture.session.getBranch());
 	switch (state.kind) {
 		case "none":
 			return undefined;
 		case "rendered":
-			// An empty roster records "" and attaches nothing.
 			return state.text === "" ? undefined : { messages: referenceWithPayload(event.messages, state.text) };
 		case "unrendered":
 			return undefined;
@@ -89,12 +65,9 @@ type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 export type Fixture = {
 	readonly pi: ExtensionAPI;
 	readonly ctx: ExtensionContext;
-	/** Counting proxy over the real manager — what `ctx.sessionManager` sees; `referenceCall` uses it so the copy is counted. */
 	readonly session: SessionManager;
-	/** The unproxied manager for appends and branch construction. */
 	readonly raw: SessionManager;
 	readonly counters: { reads: number; copies: number };
-	/** Handler warnings recorded from `pi.logger.warn`; empty means no caught error. */
 	readonly warnings: string[];
 	countedView(): readonly SessionEntry[];
 	call(messages?: AgentMessage[]): Promise<ContextResult>;
@@ -153,8 +126,6 @@ export function fixture(dir: string): Fixture {
 		},
 		logger: {
 			info: () => {},
-			// A caught handler error must surface to the scenario instead of
-			// passing silently as an undefined result.
 			warn: (...args: unknown[]) => warnings.push(args.map(String).join(" ")),
 		},
 	} as unknown as ExtensionAPI;
@@ -199,7 +170,6 @@ function defaultMessages(manager: SessionManager): AgentMessage[] {
 	return messages;
 }
 
-/** One plain message entry; `toolName` picks user/assistant/toolResult shape. */
 export function messageEntry(manager: SessionManager, index: number): string {
 	const timestamp = 1_700_000_000_000 + index;
 	if (index % 17 === 0) {
@@ -233,11 +203,6 @@ export function messageEntry(manager: SessionManager, index: number): string {
 	});
 }
 
-/**
- * §4 branch: N entries, mostly user/assistant/toolResult (todo toolName rare),
- * `tool_execution_start`/`session_exit` customs and a rich todo-more snapshot
- * about every 300 entries; the tail after the last rich snapshot stays plain.
- */
 export function fillBranch(manager: SessionManager, count: number): void {
 	const richUntil = count - Math.max(500, Math.floor(count * 0.08));
 	for (let i = 0; i < count; i++) {
@@ -257,7 +222,6 @@ export function fillBranch(manager: SessionManager, count: number): void {
 	}
 }
 
-/** §4 compaction variant: one compaction plus its rendered snapshot entry. */
 export function appendCompactionWithSnapshot(
 	manager: SessionManager,
 	text = "<post-compact-ctx>\nrendered snapshot\n</post-compact-ctx>",

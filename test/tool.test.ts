@@ -31,7 +31,6 @@ function document(...lines: string[]): string {
 	return ["*** Begin Todo", ...lines, "*** End Todo"].join("\n");
 }
 
-/** Advance on every clock read to expose per-operation rather than per-batch anchors. */
 async function at<T>(time: number, invoke: () => Promise<T>, tick = 0): Promise<T> {
 	let reads = 0;
 	const clock = spyOn(Date, "now").mockImplementation(() => time + tick * reads++);
@@ -51,7 +50,6 @@ type Fixture = {
 	callAt: (time: number, ...lines: string[]) => Promise<AgentToolResult<TodoMoreDetails>>;
 };
 
-/** Real authority-branch persistence; only the unrelated AgentSession projection is captured. */
 function fixture(initial?: TodoMoreSnapshot): Fixture {
 	const sessionManager = SessionManager.inMemory("/tmp/todo-more-tool-tests");
 	const projections: HostTodoPhase[][] = [];
@@ -75,7 +73,6 @@ function fixture(initial?: TodoMoreSnapshot): Fixture {
 	};
 }
 
-/** The host's projection of a snapshot: the host has no blocked state, so a blocked item reads as pending, and no blocker is carried. */
 function projected(snapshot: TodoMoreSnapshot): HostTodoPhase[] {
 	return snapshot.phases.map((phase) => ({
 		name: phase.name,
@@ -143,7 +140,6 @@ function time(budgetId: string, minutes: number, elapsedMs = 0, runningSince: nu
 	return { kind: "estimated", budgetId, minutes, elapsedMs, runningSince };
 }
 
-/** Only the nondeterministic identity is taken from the branch; every other field is explicit. */
 function createdTime(harness: Fixture, title: string, minutes: number, runningSince: number | null, elapsedMs = 0): EstimatedTime {
 	const budgetId = estimateOf(harness.snapshot(), title).budgetId;
 	expect(budgetId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
@@ -760,7 +756,6 @@ describe("atomic batch timing through the authority branch", () => {
 			timestamp: epoch + 302_000,
 		});
 		expect((await harness.callAt(epoch + 306_000, 'BLOCK "Implement" "Wait"')).isError).not.toBe(true);
-		// 1 250 ms before, then 306 s in progress of which 300 s were the ask.
 		expect(estimateOf(harness.snapshot(), "Implement")).toEqual(time("implement-budget", 10, 7_250));
 	});
 

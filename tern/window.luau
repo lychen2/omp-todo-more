@@ -1,2 +1,0 @@
--- Todo More's pill visuals, disclosure, rich results and session-bound editor use OMP native components.
--- This entry enables the stylesheet that hides the native Todo HUD and styles its replacement.

@@ -1,25 +1,3 @@
-/**
- * Scripted OpenAI-compatible chat-completions provider for parity runs.
- *
- * Every request is appended to `requestsFile` as one JSON line
- * `{seq, model, status, body}` before it is answered. The main session's
- * model `SCRIPT_MODEL` and the subagent model `CHILD_MODEL` each take the next
- * turn from their own queue (a turn marked `child: true` is queued for
- * `CHILD_MODEL`), so a subagent running concurrently with its parent never
- * consumes the parent's script. An empty queue, and every other model (title
- * generation and other helper roles), get the plain reply `AUX_REPLY`.
- * Tool-call ids count per model (`call_<model>_<n>_<index>`), so baseline and
- * candidate runs see identical model output whatever the cross-model order.
- *
- * A turn carrying `error` answers with that HTTP status and body instead of a
- * completion, letting scenarios script provider failures (error-stop grace
- * paths, usage-limit 429s). `error.repeat` keeps the same error queued for the
- * next N requests so SDK-level retries hit the identical response.
- *
- * `OMP_PARITY_JITTER_MS` adds a pseudo-random per-response delay seeded from
- * the requests file path, for determinism checks under perturbed latency; it
- * is unset for recorded baselines.
- */
 import { appendFileSync } from "node:fs";
 
 export const SCRIPT_MODEL = "script";
@@ -27,26 +5,21 @@ export const CHILD_MODEL = "child";
 export const AUX_MODEL = "aux";
 const AUX_REPLY = "ok";
 
-/** One scripted assistant turn: optional text, then optional tool calls. `error` answers the request with that HTTP error instead of a completion. */
 export type ScriptedTurn = {
 	readonly text?: string;
 	readonly toolCalls?: readonly { readonly name: string; readonly arguments: Record<string, unknown> }[];
-	/** Answer the subagent (`CHILD_MODEL`) instead of the main session. */
 	readonly child?: true;
 	readonly error?: {
 		readonly status: number;
 		readonly body?: string;
 		readonly headers?: Record<string, string>;
-		/** Keep this error queued for N further requests, so client retries observe the identical failure. */
 		readonly repeat?: number;
 	};
 };
 
 export type MockProvider = {
 	readonly port: number;
-	/** Append turns to the main or (`child: true`) subagent queue. */
 	enqueue(turns: readonly ScriptedTurn[]): void;
-	/** Scripted turns not yet consumed. */
 	pending(): number;
 	stop(): void;
 };
@@ -121,7 +94,6 @@ function completion(model: string, turn: ScriptedTurn, callPrefix: string): Reco
 	};
 }
 
-/** xorshift32 seeded from a string: deterministic per scenario, different between runs via the env seed. */
 function makeJitter(seed: number, maxMs: number): () => number {
 	let state = seed >>> 0 || 1;
 	return () => {

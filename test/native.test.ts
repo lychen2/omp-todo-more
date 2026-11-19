@@ -469,7 +469,6 @@ describe("native historical todo results", () => {
 				},
 			],
 		});
-		// A conflicting host projection must not replace the result's rich display copy.
 		historical.details = { ...historical.details, phases: newer.details.phases };
 		const newerBody = resultBody(newer, true);
 		const historicalBody = resultBody(historical, true);

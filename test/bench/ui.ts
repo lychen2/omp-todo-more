@@ -1,33 +1,3 @@
-/**
- * Offset-skip bench for the HUD and panel re-derivation
- * (oh-my-omp/omp-todo-more#28).
- *
- * Loads: §4 branch — 10,000 synthetic entries on a real
- * `SessionManager.inMemory` (mostly user/assistant/toolResult, sparse
- * `tool_execution_start`/`session_exit` customs, a `mouriya.omp.todo-more`
- * rich snapshot about every 300 entries, plain tail). The fixed `src/ui.ts`
- * classes (`TodoHud`/`TodoPanel`, exported for bench/test use only) are
- * driven directly.
- *
- * Behavior equivalence is checked against the base checkout: pass
- * `--base <dir>` pointing at an `origin/main` checkout and the hud/grow/
- * idle-loop scenarios load that checkout's `src/ui.ts` for the baseline
- * side (same load, same branch, both classes in one run).
- *
- * Scenarios:
- *   hud          — cold frame matches the base checkout, frames 2..50 must
- *                  copy 0 and derive 0 entries (end-probe only);
- *   panel-hit    — panel describe twice; the second must copy 0 (probe
- *                  only), node identical;
- *   grow         — +appends entries plus a todo change: next frame/press
- *                  re-derives (reads > 1), HUD matches base, panel shows
- *                  the appended task;
- *   idle-loop    — steady-state timing + allocation vs the base checkout
- *                  HUD (report only; no hard gate).
- *
- *   bun test/bench/ui.ts --scenario <name> [--frames N] [--appends N] --base <dir>
- */
-
 import * as jsc from "bun:jsc";
 import { mkdirSync } from "node:fs";
 import { TodoHud as FixedHud, TodoPanel as FixedPanel } from "../../src/ui.ts";
@@ -41,13 +11,6 @@ const appends = Number(args.get("--appends") ?? "500");
 const BRANCH_SIZE = 10_000;
 const baseDir = args.get("--base") ?? "";
 
-/**
- * Whether `--base <dir>` points at a usable `origin/main` checkout. Older
- * checkouts do not export the classes (their `src/ui.ts` module loads but
- * carries no `TodoHud`), so the scenarios use the fixed HUD as the
- * behavioral reference instead and report cost deltas. Dynamic import is
- * required: the module specifier is runtime-selected from `--base`.
- */
 async function baseAvailable(): Promise<boolean> {
 	if (baseDir === "") return false;
 	try {
@@ -76,8 +39,6 @@ function makeFixture(name: string): UiFixture {
 const counts = (fx: UiFixture): string => `copies=${fx.counters.copies} views=${fx.counters.views} reads=${fx.counters.reads}`;
 const jsonEqual = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-// The fixed `src/ui.ts` classes under test (exported for bench/test use
-// only). Baseline behavior comes from the `--base` checkout (see loadBase).
 function makeHud(fx: UiFixture): FixedHud {
 	const stubPi = { logger: { warn: () => {} } } as never;
 	return new FixedHud(
@@ -113,8 +74,6 @@ async function scenarioHud(): Promise<void> {
 		fx.resetCounters();
 		const node = hud.describe();
 		totalCopies += fx.counters.copies;
-		// One probe read per frame (`view.at(-1)`): the end-position check
-		// itself, not derivation. Copies and derivation reads must be zero.
 		totalReads += Math.max(0, fx.counters.reads - 1);
 		if (!jsonEqual(node, first)) fail(`frame ${i + 1}: node differs from cold frame`);
 	}
@@ -143,9 +102,6 @@ async function scenarioGrow(): Promise<void> {
 	panel.describe();
 	for (let i = 0; i < appends; i++) messageEntry(fx.raw, BRANCH_SIZE + i);
 	appendTodoChange(fx.raw, "Grown task");
-	// Behavior equivalence with the base checkout is proven by the row 4
-	// suite (shared `bun test` run on the same branch shapes); here the
-	// growth assertions prove re-derivation (§7).
 	fx.resetCounters();
 	const hudNext = hud.describe();
 	const hudReads = { ...fx.counters };
@@ -173,10 +129,6 @@ async function scenarioIdleLoop(): Promise<void> {
 	const fx = makeFixture("idle-loop");
 	const hud = makeHud(fx);
 	hud.describe(); // cold call seeds any offset; steady state is what §4 measures
-	// The baseline here is the fixed HUD itself measured cold-per-call
-	// (fresh instance per round, no offset reuse): it exercises the same
-	// derive path the pre-fix code ran every frame. Behavior equivalence
-	// with the base checkout is proven by the row 4 suite.
 	const rounds = 30;
 	const callsPerRound = 100;
 	const refTime: number[] = [];

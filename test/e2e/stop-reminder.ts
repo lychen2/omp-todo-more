@@ -1,15 +1,3 @@
-/**
- * End-to-end check for oh-my-omp/omp-todo-more#38: a main-session stop reminder
- * reaches the human as an info notification and leaves no `reminder-notice`
- * message in the session file.
- *
- * Runs the real `omp` in rpc mode with only this checkout's extension loaded,
- * asks the model to create one todo and stop without doing it, waits for the
- * stop reminder's `notify` UI request, then reads the session file.
- *
- * Usage: bun test/e2e/stop-reminder.ts
- * Models are tried in order; one that fails before the reminder is skipped.
- */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -61,7 +49,6 @@ async function runWith(model: string): Promise<Outcome> {
 	const cwd = mkdtempSync(path.join(tmpdir(), "todo-more-e2e-"));
 	const proc = Bun.spawn(["omp", "--mode", "rpc", "--no-extensions", "-e", EXTENSION, "--model", model], {
 		cwd,
-		// English UI text so the notification matches the asserted header.
 		env: { ...process.env, OMOMP_LANG: "en" },
 		stdin: "pipe",
 		stdout: "pipe",

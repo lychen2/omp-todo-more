@@ -1,19 +1,3 @@
-/**
- * Bench for the `context` hook in `src/reminders.ts` (oh-my-omp/omp-todo-more#31,
- * #38).
- *
- * Drives the real extension entry points — the `context` handler captured from
- * `registerReminders(pi)` and the `agent_end` handler — over stubbed host
- * surfaces, with a real `SessionManager` (in-memory) answering branch reads.
- * Every scenario asserts behavior and, where the acceptance table asks for it,
- * counts message reads/copies and branch reads. `--scenario scaling` measures
- * the goal-mode-off path on the same load for the current implementation and
- * the pre-#31 implementation embedded verbatim below (`baseline*`).
- *
- * Usage: bun test/bench/reminders.ts --scenario <name>
- * Scenarios: no-goal | goal-mode | reminder-details | scaling | all
- * Exit code is non-zero when any assertion fails (ghc ev run records it).
- */
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { CustomMessage } from "@oh-my-pi/pi-agent-core/compaction/messages";
 import type { AssistantMessage, UserMessage } from "@oh-my-pi/pi-ai";
@@ -40,14 +24,6 @@ const REMINDER_TYPE = `${TODO_MORE_ENTRY_TYPE}.reminder`;
 const REMINDER_NOTICE_TYPE = `${TODO_MORE_ENTRY_TYPE}.reminder-notice`;
 const GOAL_MODE_CONTEXT_TYPE = "goal-mode-context";
 
-// ---------------------------------------------------------------------------
-// Embedded pre-change implementation (verbatim from the anchor commit
-// 4520843c5c1599801d37cba099c3d53dbdd87239, src/reminders.ts:630-718), so the
-// scaling and equality scenarios compare current vs baseline on the same load
-// inside one checkout. Private helpers are re-prefixed `baseline*`.
-// ---------------------------------------------------------------------------
-
-// @baseline verbatim src/reminders.ts#sanitizeGoalTodoText
 function baselineSanitizeGoalTodoText(text: string): string {
 	return (
 		escapeXmlText(text)
@@ -60,13 +36,11 @@ function baselineSanitizeGoalTodoText(text: string): string {
 	);
 }
 
-// @baseline verbatim src/reminders.ts#todoToolRef
 function baselineTodoToolRef(session: AgentSession): string {
 	const tool = session.getToolByName("todo");
 	return typeof tool?.customWireName === "string" ? tool.customWireName : "todo";
 }
 
-// @baseline verbatim src/reminders.ts#goalTodoContext
 function baselineGoalTodoContext(session: AgentSession, state: TodoMoreState): string | undefined {
 	const canCallTodoTool = session.getActiveToolNames().includes("todo");
 	if (!canCallTodoTool) return undefined;
@@ -107,7 +81,6 @@ ${phaseLines.join("\n")}
 `;
 }
 
-// @baseline verbatim src/reminders.ts#withAppendedText
 function baselineWithAppendedText(message: AgentMessage, text: string): AgentMessage {
 	if (message.role !== "custom") return message;
 	const content =
@@ -115,8 +88,6 @@ function baselineWithAppendedText(message: AgentMessage, text: string): AgentMes
 	return { ...message, content };
 }
 
-// @baseline verbatim src/reminders.ts#contextMessages (its `branch()` was wired to
-// `ctx.sessionManager.getBranch()` before this fix)
 function baselineContextMessages(
 	messages: AgentMessage[],
 	session: AgentSession | undefined,
@@ -137,10 +108,6 @@ function baselineContextMessages(
 	}
 	return changed ? kept : undefined;
 }
-
-// ---------------------------------------------------------------------------
-// Fixture
-// ---------------------------------------------------------------------------
 
 type Handler = (event: never, ctx: ExtensionContext) => unknown;
 
@@ -263,7 +230,6 @@ class Fixture {
 		return hasMessages(result) ? result.messages : undefined;
 	}
 
-	/** The pre-change `pi.on("context")` handler, verbatim plumbing: same ownSession lookup, same getBranch thunk. */
 	baselineContext(messages: AgentMessage[]): AgentMessage[] | undefined {
 		const own = (AgentRegistry.global().get(this.agentId)?.session ?? undefined) as AgentSession | undefined;
 		const result = baselineContextMessages(messages, own, () => this.ctx.sessionManager.getBranch());
@@ -275,7 +241,6 @@ class Fixture {
 	}
 }
 
-/** Session stub: only the surfaces reminders.ts reads. */
 function stubSession(over: { goalMode?: boolean; toolNames?: string[] }): AgentSession {
 	return {
 		settings: Settings.isolated(),
@@ -315,7 +280,6 @@ function customMessage(customType: string, content = "note", details?: unknown):
 	return { role: "custom", customType, content, display: true, details, timestamp: 1 };
 }
 
-/** Counts `event.messages` copies made through Array.prototype.filter/slice. */
 function countCopies(array: readonly AgentMessage[], run: () => void): number {
 	type FilterSignature = (predicate: (value: unknown, index: number, values: unknown[]) => unknown, thisArg?: unknown) => unknown[];
 	const originalFilter = Array.prototype.filter as FilterSignature;
@@ -348,11 +312,6 @@ function check(name: string, condition: boolean, detail = ""): void {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Scenarios
-// ---------------------------------------------------------------------------
-
-/** `messages` behind a proxy that counts element reads (numeric index gets). */
 function countingMessages(messages: AgentMessage[]): { messages: AgentMessage[]; reads: () => number } {
 	let reads = 0;
 	const proxy = new Proxy(messages, {
@@ -390,7 +349,6 @@ function scenarioGoalMode(): void {
 		withTodo.appendSnapshot(todoSnapshot());
 		noTodo.appendSnapshot(todoSnapshot());
 
-		// Goal message present, todo context generated: splice, one branch read via getBranchView.
 		const goalMessage = customMessage(GOAL_MODE_CONTEXT_TYPE, "goal ctx");
 		const messages: AgentMessage[] = [userMessage("u1"), goalMessage, assistant("a1")];
 		const result = withTodo.context(messages);
@@ -411,7 +369,6 @@ function scenarioGoalMode(): void {
 			JSON.stringify(withTodo.branchCalls),
 		);
 
-		// Goal message present but goalTodoContext undefined (todo tool absent): no copy, undefined.
 		const messages2: AgentMessage[] = [userMessage("u1"), customMessage(GOAL_MODE_CONTEXT_TYPE, "goal ctx")];
 		let result2: AgentMessage[] | undefined;
 		const copies = countCopies(messages2, () => {
@@ -425,7 +382,6 @@ function scenarioGoalMode(): void {
 			JSON.stringify(noTodo.branchCalls),
 		);
 
-		// Goal enabled but no goal message: no branch read at all.
 		const result3 = noGoalMessage.context([userMessage("u1"), assistant("a1")]);
 		check("goal-mode no goal message returns undefined", result3 === undefined);
 		check(
@@ -466,8 +422,6 @@ function scenarioReminderDetails(): void {
 			Array.isArray(details.items) && typeof details.attempt === "number" && typeof details.max === "number",
 		);
 
-		// Rendering must be identical for a details object with and without the
-		// legacy `more` snapshot (persisted reminders written before this fix).
 		const theme = { fg: (_c: string, t: string) => `W(${t})`, icon: { warning: "!" } } as unknown as Theme;
 		const base = { items: [{ phase: "Delivery", title: "Ship it" }], attempt: 1, max: 5 };
 		const message = customMessage(REMINDER_TYPE, "text", base);
@@ -493,8 +447,6 @@ function scenarioScaling(): void {
 	const ROUNDS = 30;
 	const CALLS = 200;
 	try {
-		// Median per-call time. Allocation is judged by the copy count below: heapUsed
-		// excludes young-generation garbage, so it reads ≈0 for both implementations.
 		const measure = (run: () => void): number => {
 			const times: number[] = [];
 			for (let i = 0; i < 5; i++) run();

@@ -48,7 +48,6 @@ function nativeEdit(id: string, at: number, tasks: readonly NativeTask[], parent
 		USER_TODO_EDIT_CUSTOM_TYPE,
 		{
 			phases: [{ name: "Host edit", tasks }],
-			// A payload timestamp is not the session entry's authoritative transition time.
 			timestamp: new Date(epoch + 900_000).toISOString(),
 		},
 		parentId,

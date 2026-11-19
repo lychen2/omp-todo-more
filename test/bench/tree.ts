@@ -1,35 +1,3 @@
-/**
- * Combined bench for the #24 tree (oh-my-omp/omp-todo-more#32, row 1): the
- * four per-trigger paths on the same §4 load, for any checkout.
- *
- * Load: `fillBranch` (§4: mostly user/assistant/toolResult, sparse
- * `tool_execution_start`/`session_exit`, a rich snapshot about every 300
- * entries, a plain tail of max(500, 8%·n)) on a real in-memory
- * `SessionManager`, built once per path and size from this checkout's fixture
- * so every checkout reads identical entries.
- *
- * Paths, each driven through the checkout's own entry point; a round appends
- * one entry and fires one trigger, timed together (the steady state of a live
- * session; a checkout may react inside the append itself):
- *   planning — the `registerPlanning` reminder trigger this checkout
- *              registers: the `tool_result` handler that computes the todo
- *              snapshot delta after a tool batch, or, in checkouts before the
- *              delta, the `context` handler over the branch's last 20 human
- *              messages;
- *   todo     — `runTodo` with an `EXPLAIN` that rewrites the current item;
- *   hud      — `TodoHud.describe()`;
- *   overtime — `registerOvertime` reschedule woken by a todo write: the
- *              round appends a rich snapshot with a running estimate instead
- *              of a plain entry and emits the `todo` tool result, measured to
- *              the drained microtask.
- *
- * Metrics per path and size: the cold first round's time and allocator growth
- * (`bun:jsc` `memoryUsage().current` after a full GC right before it), the
- * median steady-state round time, and the allocator growth of a further batch
- * of steady rounds divided by its size (no GC inside the batch).
- *
- *   bun test/bench/tree.ts [--src <checkout>] [--n 5000,10000] [--rounds 200]
- */
 import { fullGC, memoryUsage } from "bun:jsc";
 import path from "node:path";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
@@ -54,7 +22,6 @@ type Modules = {
 	TodoHud: new (pi: ExtensionAPI, readSession: () => unknown, open: () => Promise<void>, tui: unknown, onDispose: () => void) => Hud;
 };
 
-// Runtime-selected checkout (`--src`), so the same bench measures every version.
 const modules: Modules = {
 	...((await import(`${src}/src/tool.ts`)) as Pick<Modules, "runTodo">),
 	...((await import(`${src}/src/planning.ts`)) as Pick<Modules, "registerPlanning">),
@@ -71,7 +38,6 @@ function stubPi(handlers: Map<string, Handler[]>, manager: SessionManager): Exte
 	} as unknown as ExtensionAPI;
 }
 
-/** An in-process session over `manager`; the extension serves only `AgentSession` instances. */
 function sessionOver(manager: SessionManager): AgentSession {
 	const session = {
 		sessionManager: manager,
@@ -97,7 +63,6 @@ type Sample = { coldNs: number; coldHeap: number; steadyNs: number; steadyHeap: 
 
 const median = (values: number[]): number => values.sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
 
-/** One appended entry and the trigger it wakes, timed together: some checkouts react inside the append itself. */
 async function round(manager: SessionManager, trigger: () => unknown | Promise<unknown>): Promise<number> {
 	const t = Bun.nanoseconds();
 	grow(manager);

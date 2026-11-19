@@ -55,7 +55,7 @@ function checklistPhases(snapshot: TodoMoreSnapshot) {
 	}));
 }
 
-/** A presentation of a snapshot only; callers must read the branch before editing. */
+/** Callers must read the branch before editing. */
 export function describeSnapshot(snapshot: TodoMoreSnapshot, editable = false, selectedTitle?: string): NativeChild[] {
 	const missingGoal = tr("[goal missing]", "[缺少目标]");
 	const body: NativeChild[] = [
@@ -108,7 +108,6 @@ export function describeSnapshot(snapshot: TodoMoreSnapshot, editable = false, s
 	return body;
 }
 
-/** Tern draws the pill; the plugin owns its accessible trigger and anchored rich disclosure. */
 export function describeTodoHud(snapshot: TodoMoreSnapshot, expanded = false): NativeNode | null {
 	let total = 0;
 	let closed = 0;
@@ -235,7 +234,6 @@ export const describeTodoResult: NonNullable<ToolDefinition<typeof parametersSch
 	};
 };
 
-/** Native-shaped result card: INIT/VIEW/expanded show the full list; incremental CRUD shows only the changed items/goal. */
 function resultPanel(details: ReadTodoDetails, args: unknown, expanded: boolean): NativeChild[] {
 	const { more } = details;
 	const phases = more.phases.filter((phase) => phase.items.length > 0);

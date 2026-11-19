@@ -4,7 +4,6 @@ import { cutOffWait, QUOTA_RESET_MARGIN_MS, quotaDeadline } from "../src/quota-w
 
 const NOW = Date.UTC(2026, 9, 24, 14, 12, 44);
 
-/** A settled main-session error stop, as the host hands it to `agent_end`. */
 function errorStop(errorStatus: number | undefined, errorMessage: string | undefined): AssistantMessage {
 	return {
 		role: "assistant",

@@ -90,14 +90,6 @@ type Mode =
 	| { kind: "panel"; selected: number }
 	| { kind: "goal"; fields: Record<GoalField, DraftField>; active: GoalField }
 	| { kind: "explanation"; title: string; draft: DraftField };
-/**
- * One overlay owns its drafts; neither a historical tool card nor the opening snapshot can be saved.
- *
- * The only cross-call memory in this panel (contract §7) is `last`: the
- * TodoMoreState of the last branch read. The same state object keeps the
- * described node; a new one drops it. UI-only changes (selection, drafts,
- * errors) clear `described` through `changed()` but keep this.
- */
 export class TodoPanel implements Component {
 	private mode: Mode = { kind: "panel", selected: 0 };
 	private error: string | undefined;
@@ -121,11 +113,6 @@ export class TodoPanel implements Component {
 		this.requestRender();
 	}
 
-	/**
-	 * The branch state for this panel, shared by `describe()`, `handleInput()`
-	 * and `render()`, from the branch fold. A new state object drops the cached
-	 * node (the node depends on the state).
-	 */
 	private readState(): TodoMoreState {
 		const state = branchFacts(this.session.sessionManager).state;
 		if (this.last !== state) {
@@ -273,9 +260,6 @@ export class TodoPanel implements Component {
 	}
 
 	describe(): NativeNode {
-		// Probe the branch end first: growth clears `described` inside
-		// `readState()`, so a stale node is never returned (§7). UI-only
-		// changes still hit the fast path below via `changed()`.
 		this.readState();
 		if (this.described) return this.described;
 		const state = this.last ?? this.readState();
@@ -488,7 +472,6 @@ export class TodoPanel implements Component {
 const HUD_WIDGET_KEY = "todo-more.hud";
 const NO_ANSI_HUD_ROWS: readonly string[] = [];
 
-/** The mounted prompt owns the host's live viewed-agent lineage, including during overlays. */
 function findPromptEditor(component: Component): CustomEditor | undefined {
 	if (component instanceof CustomEditor) return component;
 	if (component instanceof Container) {
@@ -509,17 +492,8 @@ function viewedSession(tui: TUI, mainAgentId: string): AgentSession | undefined 
 }
 type HudDisclosure = { kind: "closed" } | { kind: "open"; session: AgentSession; stopInput: () => void };
 
-/**
- * The only cross-call memory in this HUD (contract §7): the session and list
- * state of the last frame plus the node derived from them. The same state
- * reuses the node; a new one re-derives. An empty list caches the hidden
- * placeholder like any other derived node, so a cache hit and a fresh
- * derivation always agree. Disclosure open/close is an invalidation event,
- * not part of the reuse key — it clears `last` like a branch change would.
- */
 type HudRead = { sessionId: string; state: TodoMoreState; node: NativeNode };
 
-/** Native-only presentation; the branch remains its only Todo state. */
 export class TodoHud implements Component {
 	private disclosure: HudDisclosure = { kind: "closed" };
 	private last: HudRead | undefined;
@@ -546,14 +520,12 @@ export class TodoHud implements Component {
 				const sessionId = session.sessionManager.getSessionId();
 				if (previous !== undefined && previous.sessionId === sessionId && previous.state === state) return previous.node;
 				const hud = describeTodoHud(toSnapshot(state), expanded);
-				// Keep our own slot identifiable when empty, without showing a pill.
 				const derived = hud ?? node("row", { role: "omp.hud.activity", aria: tr("Todo More progress", "Todo More 进度"), hidden: true });
 				this.last = { sessionId, state, node: derived };
 				if (hud === null) this.closeDisclosure();
 				return derived;
 			}
 			if (this.disclosure.kind === "open") this.closeDisclosure();
-			// Keep our own slot identifiable when empty, without showing a pill.
 			return node("row", { role: "omp.hud.activity", aria: tr("Todo More progress", "Todo More 进度"), hidden: true });
 		} catch (error) {
 			this.closeDisclosure();
@@ -649,7 +621,6 @@ export function registerUi(pi: ExtensionAPI): void {
 				{ overlay: true, signal: opened.controller.signal },
 			);
 		} catch (error) {
-			// Session transitions abort the old overlay and discard its draft normally.
 			if (!opened.controller.signal.aborted) {
 				pi.logger.warn("todo-more UI failed", { error: errorText(error) });
 				ctx.ui.notify(`${tr("Todo More UI failed", "Todo More 界面失败")}: ${errorText(error)}`, "error");

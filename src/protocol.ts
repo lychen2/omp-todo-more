@@ -3,7 +3,6 @@ import { type CommitScope, estimatedMinutesSchema, type TodoGoal } from "./state
 
 export const parametersSchema = z.object({ input: z.string().describe("Complete Todo document; batch related changes in one call") });
 
-/** Like OMP edit's customFormat, with the same {input} function-tool representation. */
 export const customFormat = {
 	syntax: "lark" as const,
 	definition: String.raw`start: "*** Begin Todo" LF command+ "*** End Todo" LF?
@@ -29,7 +28,6 @@ LF: /\r?\n/`,
 };
 
 export type TodoTarget = { kind: "task"; title: string } | { kind: "phase"; name: string } | { kind: "all" };
-/** The commit a DONE clause asks for: what to stage, and the message git records. */
 export type TodoCommitClause = { readonly scope: CommitScope; readonly message: string };
 export type TodoCommand =
 	| { kind: "init" | "goal"; goal: TodoGoal }
@@ -53,7 +51,6 @@ export type TodoParseError =
 	| { kind: "line"; line: number; error: TodoLineError };
 export type TodoPreview = { commands: TodoCommand[]; pending: string; complete: boolean; error?: TodoParseError };
 
-/** Parser diagnostics stay structured until the model or human boundary chooses a language. */
 export function formatTodoParseError(error: TodoParseError, language: "en" | "zh" = "en"): string {
 	const zh = language === "zh";
 	switch (error.kind) {
@@ -144,11 +141,6 @@ function targetOf(tokens: Token[]): TodoTarget | undefined {
 	return undefined;
 }
 
-/**
- * A DONE clause: no strings asks for no commit, one string is the message for
- * every change, two strings are a scope and its message. `invalid` is a
- * malformed clause, not a missing one.
- */
 function commitClause(tokens: Token[]): TodoCommitClause | "invalid" | undefined {
 	if (tokens.length === 0) return undefined;
 	if (tokens.length === 1) {
@@ -247,7 +239,6 @@ function parseLine(line: string): ParsedLine {
 	return { kind: "invalid", error: { kind: "command", command: head.value } };
 }
 
-/** Pure display-only intent. Only newline-terminated commands are interpreted while generating. */
 export function previewTodo(input: string): TodoPreview {
 	const lines = input.split("\n");
 	const pending = lines.pop() ?? "";
@@ -269,7 +260,6 @@ export function previewTodo(input: string): TodoPreview {
 	return { commands, pending, complete: pending === "*** End Todo" };
 }
 
-/** Final execution always reparses; an unfinished or invalid suffix rejects the whole call. */
 export function parseTodo(input: string): TodoProgram {
 	const preview = previewTodo(input);
 	if (preview.error) return { kind: "invalid", message: formatTodoParseError(preview.error) };

@@ -1,18 +1,3 @@
-/**
- * Shared harness for `test/bench/ui.ts` and `test/ui-offset.test.ts`.
- *
- * `TodoHud`/`TodoPanel` run against a real `SessionManager.inMemory`, so
- * leaf ids, `getBranchView` liveness and navigation keep host semantics.
- * Read accounting is a Proxy over the manager: counters on `getBranch()`
- * copies and `getBranchView()` calls, plus a counting proxy over the view
- * array for integer-index entry reads.
- *
- * Behavior equivalence is checked against a freshly constructed component
- * on the same branch, and against the base checkout: run the same bench
- * scenario with `--base <dir>` pointing at an `origin/main` checkout (see
- * `test/bench/ui.ts`), which loads that checkout's `src/ui.ts` for the
- * baseline side of the comparison.
- */
 import type { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import type { Theme, TUI } from "@oh-my-pi/pi-tui";
@@ -34,7 +19,6 @@ export type UiFixture = {
 const isIndex = (prop: string | symbol): prop is string =>
 	typeof prop === "string" && prop !== "" && String(Math.trunc(Number(prop))) === prop && Number(prop) >= 0;
 
-/** Counting-proxy fixture: `session` sees instrumented reads; `raw` appends. */
 export function fixture(dir: string): UiFixture {
 	const manager = SessionManager.inMemory(dir);
 	const counters = { copies: 0, views: 0, reads: 0 };
@@ -90,7 +74,6 @@ export function fixture(dir: string): UiFixture {
 	};
 }
 
-/** One plain message entry; `toolName` picks user/assistant/toolResult shape. */
 export function messageEntry(manager: SessionManager, index: number): string {
 	const timestamp = 1_700_000_000_000 + index;
 	if (index % 17 === 0) {
@@ -124,11 +107,6 @@ export function messageEntry(manager: SessionManager, index: number): string {
 	});
 }
 
-/**
- * §4 branch: N entries, mostly user/assistant/toolResult (todo toolName rare),
- * `tool_execution_start`/`session_exit` customs and a rich todo-more snapshot
- * about every 300 entries; the tail after the last rich snapshot stays plain.
- */
 export function fillBranch(manager: SessionManager, count: number): void {
 	const richUntil = count - Math.max(500, Math.floor(count * 0.08));
 	for (let i = 0; i < count; i++) {
@@ -156,12 +134,6 @@ export function fillBranch(manager: SessionManager, count: number): void {
 	}
 }
 
-/**
- * A genuine todo change: appends a new rich snapshot entry (what the tool
- * writes on every mutation). Plain message entries do not move the todo
- * state — the HUD/panel must still re-derive (offset miss), but their
- * output only changes when the snapshot does.
- */
 export function appendTodoChange(manager: SessionManager, title: string): void {
 	const snapshot = toSnapshot(readTodoMore(manager.getBranchView()));
 	const phases =

@@ -27,14 +27,12 @@ function document(...lines: string[]): string {
 	return ["*** Begin Todo", ...lines, "*** End Todo"].join("\n");
 }
 
-/** Real git, so every assertion here reads the repository itself, not a stub. */
 async function git(cwd: string, ...args: string[]): Promise<string> {
 	const result = await Bun.$`git -C ${cwd} ${args}`.quiet().nothrow();
 	if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString().trim()}`);
 	return result.stdout.toString().trim();
 }
 
-/** A real checkout: one commit, signing off, and the session's cwd is its root. */
 async function repository(files: Record<string, string>): Promise<string> {
 	const cwd = await mkdtemp(join(tmpdir(), "todo-more-git-"));
 	created.push(cwd);
@@ -81,7 +79,6 @@ function commitOf(harness: Harness, title: string): CommitRecord {
 	return commit;
 }
 
-/** A settled assistant turn on the session's branch, as the host persists it. */
 function reply(harness: Harness, provider: string, model: string, stopReason: AssistantMessage["stopReason"] = "stop"): void {
 	const message: AssistantMessage = {
 		role: "assistant",
@@ -239,7 +236,6 @@ describe("a subagent's completion in its parent's worktree", () => {
 		const head = await git(cwd, "rev-parse", "HEAD");
 		await Bun.write(join(cwd, "foreign.txt"), "someone else's\n");
 		await Bun.write(join(cwd, "a.txt"), "two\n");
-		// The parent sits in a subdirectory of the same working tree: roots, not cwd strings, decide.
 		const harness = fixture(cwd, undefined, () => join(cwd, "sub"));
 		for (const form of forms) {
 			await harness.call(init, 'ADD "Investigate" "Read only" 5');

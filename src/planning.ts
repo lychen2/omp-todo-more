@@ -1,12 +1,3 @@
-/**
- * Enforce a non-empty todo before `edit`, and deliver the todo snapshot
- * reminder: an empty list asks for a todo only for work (changes to files,
- * config, git or external state), never for discussion or investigation. The
- * reminder is one delta (`omomp-shared/context-delta.ts`) of source
- * `omp-todo-more/planning`: delivered at `before_agent_start` and after the
- * tool batch as `additionalContext`, re-sent only when the wanted snapshot
- * changes.
- */
 import type { AgentTool } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { createDeltaStream, type Delta } from "../omomp-shared/context-delta.ts";
@@ -40,8 +31,6 @@ export function registerPlanning(pi: ExtensionAPI): void {
 		kind: "text",
 		body: reminderBody(branchFacts(contextBranch(ctx)).state),
 	});
-	// Installation identity, not todo state. A refreshed registry may supply a
-	// new edit tool; each tool instance receives exactly one execution wrapper.
 	const guarded = new WeakSet<AgentTool>();
 	const installEditGuard = (ctx: ExtensionContext): void => {
 		const session = sessionOf(ctx.agent.id);
@@ -73,7 +62,6 @@ export function registerPlanning(pi: ExtensionAPI): void {
 	};
 	pi.on("session_start", (_event, ctx) => installSafely(ctx));
 	pi.on("before_agent_start", (event, ctx) => {
-		// OMP discards the result of a revive.
 		if (event.reason === "revive") return;
 		installSafely(ctx);
 		try {
@@ -83,7 +71,7 @@ export function registerPlanning(pi: ExtensionAPI): void {
 		}
 	});
 	pi.on("tool_call", (event, ctx) => {
-		// tool_call prepares the whole batch before anything executes. Install
+		// Install
 		// here after registry refreshes, but read todo only inside execute so
 		// init/edit and rm/edit in one batch see their actual execution state.
 		if (event.toolName === "edit") installSafely(ctx);

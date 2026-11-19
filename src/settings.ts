@@ -1,17 +1,3 @@
-/**
- * todo-more's settings and the native automation they replace.
- *
- * The values are this plugin's native settings (`package.json` `omp.settings`,
- * edited in `/settings` → Plugins or `omp plugin config`). Reminders read them
- * when a session starts and at every prompt start, and hooks and timers between
- * those use the last read; the `todo` tool reads them on every call. An invalid
- * value falls back to its default with a warning.
- *
- * The native TodoTracker keeps running underneath (`todo.enabled` stays on), so
- * its own stop reminder, mid-run nudge and eager prelude are switched off with
- * runtime overrides on the session's settings: never persisted, and gone with
- * the process.
- */
 import type { AgentSession, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
 import { cfgTodoEager, cfgTodoReminders } from "@oh-my-pi/pi-coding-agent/tools/settings";
@@ -28,7 +14,6 @@ export type TodoMoreSettings = {
 	readonly reminders: boolean;
 	readonly remindersMax: number;
 	readonly eager: EagerMode;
-	/** The largest estimate, in minutes, an item (a leaf of the list) may carry. */
 	readonly leafMaxMinutes: number;
 };
 
@@ -43,7 +28,6 @@ function isEagerMode(value: unknown): value is EagerMode {
 	return EAGER_MODES.some((mode) => mode === value);
 }
 
-/** One raw setting, or its default when unset or invalid; `invalid` collects the keys that were. */
 function pick<T>(raw: unknown, valid: (value: unknown) => value is T, fallback: T, key: string, invalid: string[]): T {
 	if (raw === undefined) return fallback;
 	if (valid(raw)) return raw;
@@ -77,7 +61,6 @@ export async function readSettings(pi: Pick<ExtensionAPI, "logger">, ctx: Pick<E
 	}
 }
 
-/** Switch off the native reminders and eager prelude todo-more replaces, for this process only. */
 export function silenceNativeTodoAutomation(session: AgentSession): void {
 	if (cfgTodoReminders.get(session.settings)) cfgTodoReminders.override(session.settings, false);
 	if (cfgTodoEager.get(session.settings) !== "default") cfgTodoEager.override(session.settings, "default");

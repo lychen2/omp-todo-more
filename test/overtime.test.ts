@@ -65,7 +65,6 @@ function warningDetails(manager: SessionManager) {
 	return overtimeDetailsSchema.parse(warnings(manager)[0]?.details);
 }
 
-/** Controlled managed-timeout boundary; the journal and its branch reader remain real. */
 class DeadlineClock {
 	now = epoch;
 	#nextHandle = 0;
@@ -76,7 +75,6 @@ class DeadlineClock {
 	}
 
 	setTimeout: ExtensionContext["setTimeout"] = (callback, ms = 0, ...args) => {
-		// Only the opaque handle crosses the host boundary; no Timer methods are consumed.
 		const handle = ++this.#nextHandle as unknown as Timer;
 		this.#scheduled.set(handle, { at: this.now + ms, run: () => callback(...args) });
 		return handle;
@@ -140,20 +138,16 @@ class SchedulerFixture {
 	manager = SessionManager.inMemory("/tmp/overtime-regression");
 	projection: Projection = () => {};
 
-	// Only these documented host surfaces are consumed by the extension/commit boundary.
-	// The actual SessionManager is never replaced by a mock or a synthetic branch array.
 	get session(): AgentSession {
 		const manager = this.manager;
 		const session = {
 			sessionManager: manager,
 			setTodoPhases: (phases: Parameters<Projection>[0]) => this.projection(phases),
-			// As the host's: project, then record the edit (`AgentSession.commitTodoPhases`).
 			commitTodoPhases: (phases: Parameters<Projection>[0]) => {
 				this.projection(phases);
 				manager.appendCustomEntry(USER_TODO_EDIT_CUSTOM_TYPE, { phases });
 			},
 		};
-		// The extension serves only in-process sessions; the fixture stands in for one.
 		return Object.setPrototypeOf(session, AgentSession.prototype) as AgentSession;
 	}
 
@@ -195,7 +189,6 @@ class SchedulerFixture {
 		await Promise.resolve();
 	}
 
-	/** A `todo` call: its snapshot entry, then the host's tool-result event. */
 	async append(state: TodoMoreState): Promise<void> {
 		this.manager.appendCustomEntry(TODO_MORE_ENTRY_TYPE, toSnapshot(state));
 		await this.toolEnd("todo");
@@ -213,10 +206,8 @@ class SchedulerFixture {
 		});
 	}
 
-	/** A host write outside the tool (`/todo`, RPC `set_todos`), or a native `todo` result with its message event. */
 	async native(status: TodoStatus, source: "edit" | "result"): Promise<void> {
 		if (source === "edit") {
-			// A host write carries the host's four statuses: a blocked item reads as pending there.
 			this.bound.commitTodoPhases([{ name: "Delivery", tasks: [{ content: title, status: status === "blocked" ? "pending" : status }] }]);
 			await Promise.resolve();
 			return;
@@ -235,7 +226,6 @@ class SchedulerFixture {
 		await this.emit({ type: "message_end", message });
 	}
 
-	/** The host's record of an `ask` call starting, written before it emits the start event. */
 	async askStart(toolCallId: string): Promise<void> {
 		this.manager.appendCustomEntry("tool_execution_start", {
 			toolCallId,
@@ -289,8 +279,6 @@ describe("overtime deadline scheduling", () => {
 			await fixture.append(estimatedState());
 			await fixture.clock.advanceTo(epoch + 20_000);
 			await fixture.askStart("ask-1");
-			// The deadline armed before the ask falls inside it: it re-reads the branch,
-			// sees the open ask and stands down without warning.
 			await fixture.clock.advanceTo(epoch + 200_000);
 			expect(warnings(fixture.manager)).toEqual([]);
 			expect(fixture.clock.deadlines).toEqual([]);
@@ -304,7 +292,6 @@ describe("overtime deadline scheduling", () => {
 		});
 	});
 
-	// A host write pauses as pending (it has no blocked state); a native result read from the branch keeps blocked.
 	for (const [source, paused] of [
 		["edit", "pending"],
 		["result", "blocked"],

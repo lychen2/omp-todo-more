@@ -23,7 +23,6 @@ describe("human preview diagnostics", () => {
 				const call = parseCall({ input: entry.input });
 				expect(callPreviewLines(call)).toContain(`Invalid preview: ${entry.en}`);
 				process.env.OMOMP_LANG = "zh";
-				// The already-parsed preview must use the language at rendering time.
 				expect(callPreviewLines(call)).toContain(`预览无效: ${entry.zh}`);
 				expect(JSON.stringify(describeTodoCall({ input: entry.input }, { expanded: true, isPartial: true }))).toContain(entry.zh);
 				expect(parseTodo(entry.input)).toEqual({ kind: "invalid", message: entry.en });

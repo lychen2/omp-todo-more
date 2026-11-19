@@ -1,34 +1,13 @@
-/**
- * The todo-more domain and its branch records.
- *
- * Authority: the active session branch. `todo-more` appends a full snapshot
- * entry (`TODO_MORE_ENTRY_TYPE`) on changing mutations; the host's own
- * writers that bypass the tool (`/todo`, RPC `set_todos`, finished-subagent
- * auto-complete) append native-shaped `user_todo_edit` entries, and sessions
- * from before todo-more hold native `todo` tool results. `recordOf` and
- * `joinNative` are the read rule over those records; `branch.ts` folds them.
- *
- * Copy markers: code taken from OMP is wrapped in
- * `// @upstream <verbatim|adapted> <package>@<version> <path>#<symbol>` …
- * `// @upstream-end`. `verbatim` means the block is character-for-character the
- * upstream text; `adapted` means it was changed (rich items, strict types).
- *
- * An item also carries the commit its completion made (git.ts takes it): a
- * copy of git's answer, written once and never refreshed.
- */
 import { type SessionEntry, z } from "@oh-my-pi/pi-coding-agent";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "@oh-my-pi/pi-coding-agent/tools/todo";
 import type { TodoPhase as HostTodoPhase, TodoStatus as HostTodoStatus } from "@oh-my-pi/pi-tui/tools/todo";
 
 export const TODO_MORE_ENTRY_TYPE = "mouriya.omp.todo-more";
 
-/** Set on todo-more's own tool result details, so the reader skips them (the entry before them is the record). */
 export const TODO_MORE_RESULT_MARK = "todoMore";
 
-/** Subagent and cut-off stop reminder: model input and transcript notice in one message. */
 export const REMINDER_TYPE = `${TODO_MORE_ENTRY_TYPE}.reminder`;
 
-/** The overtime warning; the delivered message is the notification fact, todo snapshots never copy it. */
 export const OVERTIME_TYPE = `${TODO_MORE_ENTRY_TYPE}.overtime`;
 export const overtimeDetailsSchema = z.object({
 	budgetId: z.string(),
@@ -40,25 +19,14 @@ export const overtimeDetailsSchema = z.object({
 export const TODO_STATUSES = ["pending", "in_progress", "completed", "abandoned", "blocked"] as const;
 export type TodoStatus = (typeof TODO_STATUSES)[number];
 
-/** What the work is, how its result is measured, and how far it must go to count as done. */
 export type TodoGoal = { readonly objective: string; readonly measure: string; readonly doneWhen: string };
 
-/** `missing`: the list has items but no goal yet (it was built by `/todo`); the next tool mutation must set one. */
 export type GoalState = { readonly kind: "set"; readonly goal: TodoGoal } | { readonly kind: "missing" };
 
-/** `missing`: the item was added outside the tool (`/todo`, an older session) and still needs one. */
 export type Explanation = { readonly kind: "explained"; readonly text: string } | { readonly kind: "missing" };
 
-/** What a completion's commit covers: `all` is the whole checkout, `paths` the listed pathspecs only. */
 export type CommitScope = { readonly kind: "all" } | { readonly kind: "paths"; readonly files: string[] };
 
-/**
- * The commit a completion made, as git answered it. Git is the authority for
- * what was committed; this is the copy the list keeps, taken once at the
- * commit and never refreshed, so it can be read back without asking git again.
- * `message` is the completion's own message; git's copy also ends with the
- * `Model` trailers of the committing session (`models.ts`).
- */
 export type CommitRecord = { readonly sha: string; readonly message: string; readonly scope: CommitScope };
 
 export const commitScopeSchema = z.union([
@@ -72,7 +40,6 @@ export const commitRecordSchema = z.object({
 	scope: commitScopeSchema,
 });
 
-/** Estimates are model-owned; imported items have no invented budget or historical clock. */
 export const estimatedMinutesSchema = z
 	.number()
 	.int()
@@ -91,16 +58,8 @@ export const itemTimeSchema = z.union([
 ]);
 export type ItemTime = z.infer<typeof itemTimeSchema>;
 
-/**
- * A span the session spent waiting on the user in `ask`, read from the branch:
- * the host's `tool_execution_start` record of an `ask` call opens it (its
- * `startedAt`), the call's tool result closes it (the result's `timestamp`), or
- * the host's `session_exit` record does when the process ended while the ask
- * was open. `end` is null while the ask is still open.
- */
 export type AskWait = { readonly start: number; readonly end: number | null };
 
-/** Milliseconds of [from, to) spent in `waits` (an open wait runs to `to`); overlapping waits count once. */
 function waitedIn(waits: readonly AskWait[], from: number, to: number): number {
 	const spans = waits
 		.map((wait) => [Math.max(from, wait.start), Math.min(to, wait.end ?? to)] as const)
@@ -116,7 +75,6 @@ function waitedIn(waits: readonly AskWait[], from: number, to: number): number {
 	return total;
 }
 
-/** Only in_progress wall time counts, minus the time spent waiting on the user in `ask`; leaving in_progress closes the interval. */
 export function transitionTime(time: ItemTime, status: TodoStatus, now: number, waits: readonly AskWait[] = []): ItemTime {
 	if (time.kind === "missing") return time;
 	if (status === "in_progress") return time.runningSince === null ? { ...time, runningSince: now } : time;
@@ -137,14 +95,12 @@ export type TodoItem = {
 	readonly explanation: Explanation;
 	readonly status: TodoStatus;
 	readonly time: ItemTime;
-	/** The commit this item's completion made; absent when nothing was committed for it. */
 	readonly commit?: CommitRecord;
 	readonly blocker?: string;
 };
 
 export type TodoPhase = { readonly name: string; readonly items: readonly TodoItem[] };
 
-/** `empty`: no items at all; an empty list carries no goal. */
 export type TodoMoreState =
 	| { readonly kind: "empty" }
 	| { readonly kind: "list"; readonly goal: GoalState; readonly phases: readonly TodoPhase[] };
@@ -157,7 +113,6 @@ export const todoGoalSchema = z.object({ objective: nonEmpty, measure: nonEmpty,
 
 const statusSchema = z.enum(TODO_STATUSES);
 
-/** Older snapshots and native imports are explicitly unestimated. */
 export const itemSnapshotSchema = z.object({
 	title: z.string(),
 	explanation: z.string().nullable(),
@@ -167,7 +122,6 @@ export const itemSnapshotSchema = z.object({
 	time: itemTimeSchema.default(() => ({ kind: "missing" })),
 });
 
-/** The persisted snapshot: `explanation: null` and `goal: null` encode the `missing` variants. */
 export const todoMoreSnapshotSchema = z.object({
 	goal: todoGoalSchema.nullable(),
 	phases: z.array(z.object({ name: z.string(), items: z.array(itemSnapshotSchema) })),
@@ -199,7 +153,6 @@ export function itemCount(phases: readonly TodoPhase[]): number {
 	return phases.reduce((total, phase) => total + phase.items.length, 0);
 }
 
-/** A state from phases and goal: no items means `empty`. */
 export function stateOf(goal: GoalState, phases: readonly TodoPhase[]): TodoMoreState {
 	return itemCount(phases) === 0 ? EMPTY : { kind: "list", goal, phases };
 }
@@ -248,13 +201,10 @@ function fromSnapshot(snapshot: TodoMoreSnapshot): TodoMoreState {
 	return stateOf(goal, phases);
 }
 
-/** A native-shaped list record: a host edit or a pre-todo-more `todo` result. */
 export type NativeRecord = { readonly kind: "native"; readonly phases: NativePhases; readonly at: number };
 
-/** One branch record that defines the list. */
 export type ListRecord = { readonly kind: "rich"; readonly state: TodoMoreState } | NativeRecord;
 
-// @upstream adapted @oh-my-pi/pi-coding-agent@18.10.1 src/tools/todo.ts#canonicalTodoPhases
 export function recordOf(entry: SessionEntry): ListRecord | undefined {
 	if (entry.type === "custom") {
 		if (entry.customType === TODO_MORE_ENTRY_TYPE) {
@@ -267,21 +217,13 @@ export function recordOf(entry: SessionEntry): ListRecord | undefined {
 		}
 		return undefined;
 	}
-	// Discriminate before parsing: only a `todo` tool result can define the list.
 	if (entry.type !== "message" || entry.message.role !== "toolResult" || entry.message.toolName !== "todo") return undefined;
 	const parsed = nativeResultSchema.safeParse(entry.message);
 	if (!parsed.success || parsed.data.isError === true || parsed.data.details.op === "view") return undefined;
-	// todo-more's own results follow the entry that records them.
 	if (markedDetailsSchema.safeParse(parsed.data.details).success) return undefined;
 	return { kind: "native", phases: parsed.data.details.phases, at: Date.parse(entry.timestamp) };
 }
-// @upstream-end
 
-/**
- * A native-shaped snapshot (host edit or pre-todo-more result) joined with the
- * list before it: titles keep their explanation, the goal carries over, new
- * titles are `missing`. The caller passes `EMPTY` after an empty snapshot.
- */
 export function joinNative(phases: NativePhases, base: TodoMoreState, at: number, waits: readonly AskWait[]): TodoMoreState {
 	const known = new Map<string, TodoItem>();
 	if (base.kind === "list") for (const item of base.phases.flatMap((phase) => phase.items)) known.set(item.title, item);
@@ -302,10 +244,6 @@ export function joinNative(phases: NativePhases, base: TodoMoreState, at: number
 	return stateOf(base.kind === "list" ? base.goal : { kind: "missing" }, joined);
 }
 
-/**
- * The host's status for an item: the host has four statuses and no blocked state, so a blocked item
- * reads as pending there. The plugin keeps `blocked` and its blocker in its own records.
- */
 function hostStatus(status: TodoStatus): HostTodoStatus {
 	switch (status) {
 		case "pending":
@@ -322,7 +260,6 @@ function hostStatus(status: TodoStatus): HostTodoStatus {
 	}
 }
 
-/** The host's view of the list: what `session.setTodoPhases`, the HUD and native tool-result consumers take. */
 export function hostPhases(state: TodoMoreState): HostTodoPhase[] {
 	switch (state.kind) {
 		case "empty":
@@ -339,7 +276,6 @@ export function hostPhases(state: TodoMoreState): HostTodoPhase[] {
 	}
 }
 
-/** Pending or in-progress items, in list order, with their phase name: what the stop reminder lists. */
 export function actionableItems(state: TodoMoreState): { readonly phase: string; readonly item: TodoItem }[] {
 	if (state.kind === "empty") return [];
 	return state.phases.flatMap((phase) =>
@@ -347,18 +283,15 @@ export function actionableItems(state: TodoMoreState): { readonly phase: string;
 	);
 }
 
-/** Items that still need an explanation. */
 export function unexplainedItems(state: TodoMoreState): TodoItem[] {
 	if (state.kind === "empty") return [];
 	return state.phases.flatMap((phase) => phase.items.filter((item) => item.explanation.kind === "missing"));
 }
 
-/** The goal as three labelled lines. */
 export function goalLines(goal: TodoGoal): string[] {
 	return [`Objective: ${goal.objective}`, `Measure: ${goal.measure}`, `Done when: ${goal.doneWhen}`];
 }
 
-/** An item's explanation for display: the text, or a marker asking for one. */
 export function explanationText(item: TodoItem): string {
 	switch (item.explanation.kind) {
 		case "explained":
@@ -372,12 +305,10 @@ export function explanationText(item: TodoItem): string {
 	}
 }
 
-/** A commit for display: short sha and the message git recorded. */
 export function commitRecordText(commit: CommitRecord): string {
 	return `${commit.sha.slice(0, 7)} ${JSON.stringify(commit.message)}`;
 }
 
-/** A commit's scope for display. */
 export function commitScopeText(scope: CommitScope): string {
 	return scope.kind === "all" ? "all changes" : scope.files.join(" ");
 }

@@ -1,4 +1,3 @@
-/** Tern owns registration and installation; local reads verify its published normal-copy representation. */
 import { lstatSync, type Stats } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +19,6 @@ function statEntry(path: string): Stats | undefined {
 	}
 }
 
-/** A `TernResult` as its value; the stage-tagged failure becomes the thrown reason. */
 function unwrap<T>(result: TernResult<T>): T {
 	if (result.ok) return result.value;
 	throw new Error(result.error.message);
@@ -35,12 +33,10 @@ async function readBundle(): Promise<Bundle> {
 	return { version: manifest.version, css: await Bun.file(cssPath).text() };
 }
 
-/** Tern's listing plus the on-disk check say this exact bundle is already a normal copy. */
 async function isCurrent(plugins: readonly TernPluginEntry[], root: string, bundle: Bundle): Promise<boolean> {
 	const plugin = plugins.find((entry) => entry.id === ID);
 	if (plugin === undefined || plugin.status.kind === "failed" || plugin.version !== bundle.version) return false;
 	if (plugin.status.kind === "ready" && plugin.css !== bundle.css) return false;
-	// A `.path` marker next to the copy means Tern holds a link, never a copy.
 	if (statEntry(join(root, `${ID}.path`))) return false;
 	return unwrap(await pluginCopyMatches(BUNDLE_DIR, join(root, ID)));
 }
@@ -76,7 +72,6 @@ async function initialize(): Promise<void> {
 	}
 }
 
-/** One awaited owner initialization for this module graph; prepared child factories reuse its conclusion. */
 let initialization: Promise<void> | undefined;
 export function initializeTernPlugin(): Promise<void> {
 	initialization ??= initialize();

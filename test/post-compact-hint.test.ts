@@ -1,10 +1,3 @@
-/**
- * Behavior regression for the post-compact-hint bounded read
- * (oh-my-omp/omp-todo-more#27): the offset/suffix-scan derivation must be
- * indistinguishable from the pre-fix full-scan derivation — same returned
- * messages, same appended snapshot entries, step by step.
- */
-
 import { describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { POST_COMPACT_SNAPSHOT_VERSION } from "../src/branch.ts";
@@ -29,7 +22,6 @@ function messagesOf(fx: Fixture): AgentMessage[] {
 	return messages;
 }
 
-/** Deterministic PRNG (mulberry32). */
 function prng(seed: number): () => number {
 	let a = seed >>> 0;
 	return () => {
@@ -43,20 +35,11 @@ function prng(seed: number): () => number {
 
 const SNAPSHOT_TEXT = "<post-compact-ctx>\nsynthetic rendered snapshot\n</post-compact-ctx>";
 
-/**
- * Compare the observable outcome: handler result equals the reference, and
- * when it renders a snapshot the appended entry matches it byte-for-byte.
- * The unrendered arm is unobservable for the reference (it cannot re-render),
- * so a payload is checked structurally and the next call must match.
- */
 async function step(fx: Fixture, random: () => number): Promise<void> {
 	const roll = random();
 	if (roll < 0.05) {
 		fx.raw.appendCompaction("summary", undefined, fx.raw.getLeafId() ?? "", 100_000);
 	} else if (roll < 0.12) {
-		// Snapshot entry: sometimes for the latest compaction, sometimes a
-		// foreign, unversioned (pre-version) or malformed one — the combine
-		// rules must match exactly.
 		const latest = fx.raw.getBranchView().findLast((entry) => entry.type === "compaction");
 		const pick = random();
 		const data =
@@ -69,7 +52,6 @@ async function step(fx: Fixture, random: () => number): Promise<void> {
 						: { wrong: true };
 		fx.raw.appendCustomEntry(SNAPSHOT_ENTRY_TYPE, data);
 	} else if (roll < 0.15) {
-		// Branch off mid-history: navigation forces re-derivation.
 		const view = fx.raw.getBranchView();
 		const back = Math.max(1, Math.floor(random() * Math.min(view.length, 50)));
 		fx.raw.branchWithSummary(view.at(-back)?.id ?? null, "sibling");
@@ -86,8 +68,6 @@ async function step(fx: Fixture, random: () => number): Promise<void> {
 	if (reference !== undefined || result === undefined) {
 		expect(result).toEqual(reference);
 	} else {
-		// Reference says unrendered (undefined); the real handler rendered.
-		// One snapshot entry, keyed by the latest compaction, payload after it.
 		expect(appended.filter((entry) => entry.type === "custom" && entry.customType === SNAPSHOT_ENTRY_TYPE)).toHaveLength(1);
 		const summaryAt = (result?.messages ?? []).findIndex((message) => message.role === "compactionSummary");
 		const payloadAt = (result?.messages ?? []).findIndex((message) => message.role === "custom");
@@ -119,8 +99,6 @@ describe("post-compact-hint bounded read", () => {
 	test("a session switch re-derives on the new session's branch", async () => {
 		const fxA = fixture(`${DIR}/switch-a`);
 		const fxB = fixture(`${DIR}/switch-b`);
-		// Same registered module? No — each fixture registers its own pi; the
-		// sessionId discriminator is what matters, verified on real ids.
 		fillBranch(fxA.raw, 500);
 		fillBranch(fxB.raw, 300);
 		appendCompactionWithSnapshot(fxB.raw);

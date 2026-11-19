@@ -1,23 +1,12 @@
 /**
- * Parity scenarios: each drives one omp session through scripted model turns.
- * Model output is fixed by the script, so every difference between a baseline
- * and a candidate recording comes from the extension under test.
- *
- * Turn budgeting: every `turns` entry is one provider request. A run keeps
- * requesting until a text-only reply, and stop/cut-off reminders create extra
- * requests the same queue feeds, so each step enqueues exactly the requests
- * its run (plus any reminder continuation it provokes) will make. Reminder
- * continuations race subsequent steps, so a step that leaves todos open is
+ * Reminder continuations race subsequent steps, so a step that leaves todos open is
  * either last or is followed by a `sleep` step carrying the continuation
  * turns — the sleep drains the chain deterministically before the next prompt.
- * A `task` subagent runs on its own model and queue: its turns are marked
- * `child(…)`, and an unscripted subagent request gets the plain reply "ok".
  */
 import type { ScriptedTurn } from "./mock-provider.ts";
 
 export type Variant = "baseline" | "candidate";
 
-/** Todo reminder settings: host `todo.*` in the baseline, todo-more plugin settings in the candidate. */
 export type TodoSettings = {
 	readonly reminders?: boolean;
 	readonly remindersMax?: number;
@@ -32,20 +21,13 @@ export type Step =
 
 export type Scenario = {
 	readonly name: string;
-	/** Extra config.yml keys, deep-merged over the variant's settings. */
 	readonly config?: Record<string, unknown>;
 	readonly todo?: TodoSettings;
-	/** OMOMP_LANG; defaults to en. */
 	readonly lang?: "en" | "zh";
-	/** sh run in the session cwd before omp starts. */
 	readonly setup?: string;
-	/** `--mode rpc-ui` instead of rpc (tool UI such as `ask` reaches the responder). */
 	readonly rpcUi?: boolean;
-	/** `--no-ui` (extensions run with hasUI=false). */
 	readonly noUi?: boolean;
-	/** Reply to an extension UI request; may be async; undefined leaves it unanswered. */
 	readonly ui?: (request: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown> | undefined> | undefined;
-	/** Literal substrings that must appear in the normalized output (checked by normalize.ts). */
 	readonly expect?: readonly string[];
 	readonly steps: readonly Step[];
 };
@@ -57,13 +39,11 @@ const bashTool = (command: string): { name: string; arguments: Record<string, un
 	arguments: { command, i: "run command" },
 });
 
-/** A `todo` tool call carrying one Todo document. */
 export function todo(...lines: string[]): ScriptedTurn {
 	return { toolCalls: [{ name: "todo", arguments: { input: ["*** Begin Todo", ...lines, "*** End Todo"].join("\n") } }] };
 }
 
 const say = (text: string): ScriptedTurn => ({ text });
-/** A turn answered to the subagent (model `child`); unscripted subagent requests get the plain reply "ok". */
 const child = (turn: ScriptedTurn): ScriptedTurn => ({ ...turn, child: true });
 const ctxTool = (args: Record<string, unknown>): ScriptedTurn => call("ctx", { i: "inspect contexts", ...args });
 
@@ -140,7 +120,6 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	// ---------- todo grammar, parse and document rules ----------
 	{
 		name: "todo-parse-errors",
 		expect: [
@@ -383,7 +362,6 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	// ---------- native writes, join, goal rules ----------
 	{
 		name: "native-writes",
 		expect: ["user_todo_edit", "has no goal", "no time estimate", "no explanation yet", "The list has no goal"],
@@ -410,7 +388,6 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	// ---------- reminders ----------
 	{
 		name: "stop-reminder",
 		expect: ["session-stop-continuation", "1 incomplete todo - reminder 1/3", "(Reminder 1/3)"],
@@ -448,10 +425,6 @@ export const SCENARIOS: readonly Scenario[] = [
 	{
 		name: "mid-run-nudge",
 		expect: ["mid-run-nudge", "todo item still open"],
-		// The nudge aside fires at turn_end; the request that would race it is the
-		// next model turn, so a sleep isolates each nudge boundary before the next
-		// batch starts. One bash call per turn: parallel calls finish in scheduler
-		// order and, sharing one shell, some fall back to a temporary shell.
 		steps: [
 			{
 				kind: "prompt",
@@ -504,7 +477,6 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	// ---------- planning ----------
 	{
 		name: "planning-edit-guard",
 		expect: ["edit is blocked until the complete document succeeds", "Check that this todo matches your current plan"],
@@ -524,7 +496,6 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	// ---------- timers ----------
 	{
 		name: "overtime",
 		expect: ["todo-more.overtime", "has exceeded its estimated time", "elapsed"],
@@ -555,7 +526,6 @@ export const SCENARIOS: readonly Scenario[] = [
 			{
 				kind: "prompt",
 				text: "Hit a provider error.",
-				// A 400 is not retried by pi-ai, so the turn stops on the error at once.
 				turns: [{ error: { status: 400, body: '{"error":{"message":"provider exploded","type":"invalid_request_error"}}' } }],
 			},
 			{ kind: "sleep", ms: 15_000, turns: [say("After nudge.")] },
@@ -565,10 +535,6 @@ export const SCENARIOS: readonly Scenario[] = [
 	{
 		name: "quota-wait",
 		config: { retry: { enabled: false } },
-		// pi-ai transparently retries a 429 whose hint fits its retry budget, so the
-		// usage-limit classification (cutOffWait quota path) never settles in RPC
-		// streaming runs; the scenario still exercises the provider-error stop and
-		// the stop reminder over it.
 		expect: ["Reminder 1/3"],
 		steps: [
 			{
@@ -619,7 +585,6 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	// ---------- subagents ----------
 	{
 		name: "subagent-shared-worktree",
 		expect: ["the parent agent integrates and commits these changes"],
@@ -672,12 +637,9 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	// ---------- session navigation, compaction ----------
 	{
 		name: "compact",
 		todo: { eager: "preferred" },
-		// The mock reports 2 tokens per turn; without a tiny keep window the host
-		// finds nothing to summarize.
 		config: { compaction: { keepRecentTokens: 1 } },
 		expect: ["todo-more.post-compact-ctx", "compaction"],
 		steps: [
@@ -717,7 +679,6 @@ export const SCENARIOS: readonly Scenario[] = [
 		],
 	},
 
-	// ---------- ctx tool, slash commands, i18n ----------
 	{
 		name: "ctx-tool",
 		expect: ["# Contexts", "# Context", "todo init:", "todo-more set:", "Unknown context", "requires an id"],

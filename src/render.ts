@@ -33,7 +33,6 @@ const changeSchema = z.object({
 	commit: z.object({ scope: commitScopeSchema, message: z.string() }).optional(),
 });
 
-/** Result snapshots are display copies, not a second source of todo state. */
 export const detailsSchema = z.object({
 	op: z.enum(RESULT_OPS).optional(),
 	operations: z.array(z.enum(OPS)).optional(),
@@ -50,10 +49,6 @@ export const detailsSchema = z.object({
 	more: todoMoreSnapshotSchema,
 });
 
-/**
- * A result's details as read back from the branch. The plugin reads `more` and never the host copy in `phases`, which older
- * results may hold with `blocked` and `blocker`; `detailsSchema` accepts that shape, so the reader type leaves `phases` out.
- */
 export type ReadTodoDetails = Omit<z.infer<typeof detailsSchema>, "phases">;
 type Item = TodoMoreSnapshot["phases"][number]["items"][number];
 
@@ -73,7 +68,6 @@ function goalUiLines(goal: TodoMoreSnapshot["goal"]): string[] {
 	];
 }
 
-// Streaming arguments may not yet contain input; protocol parsing owns complete-line detection.
 const callSchema = z.object({ input: z.string().optional() });
 type Call = TodoPreview;
 export function parseCall(args: unknown): Call {
@@ -153,7 +147,6 @@ function commandPreviewLines(command: TodoCommand): string[] {
 	}
 }
 
-/** Shared display-only intent for ANSI and native call views, never a projected snapshot. */
 export function callPreviewLines(call: Call): string[] {
 	const lines = [tr("Preview only — not committed.", "仅预览 — 未提交。")];
 	for (const command of call.commands) lines.push(...commandPreviewLines(command));
@@ -169,7 +162,6 @@ export function callPreviewLines(call: Call): string[] {
 	return lines.map(forDisplay);
 }
 
-// @upstream adapted @oh-my-pi/pi-utils@18.10.1 src/sanitize-text.ts#sanitizeText
 const ESC_CHAR = "\x1b";
 // biome-ignore lint/suspicious/noControlCharactersInRegex: render boundaries must strip terminal control characters.
 const CONTROL_RE = /[\x00-\x08\x0B-\x1F\x7F-\x9F]/g;
@@ -189,15 +181,11 @@ function sanitizeWellFormedText(text: string): string {
 	CONTROL_RE.lastIndex = 0;
 	return stripped.replace(CONTROL_RE, "");
 }
-// @upstream-end
 
-// @upstream verbatim @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#forDisplay
 function forDisplay(text: string): string {
 	return replaceTabs(sanitizeText(text));
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#phaseRomanNumeral
 const ROMAN_PAIRS: readonly (readonly [number, string])[] = [
 	[1000, "M"],
 	[900, "CM"],
@@ -223,15 +211,11 @@ function phaseRomanNumeral(index: number): string {
 	}
 	return text;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#isClosedTodo
 export function isClosed(item: { status: TodoStatus }): boolean {
 	return item.status === "completed" || item.status === "abandoned";
 }
-// @upstream-end
 
-/** Closed and total task counts over non-empty phases: the `closed/total` header progress of a todo result. */
 export function progressCounts(more: TodoMoreSnapshot): { closed: number; total: number } {
 	const phases = more.phases.filter((phase) => phase.items.length > 0);
 	return {
@@ -240,7 +224,6 @@ export function progressCounts(more: TodoMoreSnapshot): { closed: number; total:
 	};
 }
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#selectWithinCap
 const COLLAPSED_ITEMS = 8;
 function selectWithinCap(items: Item[]): { items: Item[]; summary: string } {
 	if (items.length <= COLLAPSED_ITEMS + 1) return { items, summary: "" };
@@ -266,9 +249,7 @@ function selectWithinCap(items: Item[]): { items: Item[]; summary: string } {
 		summary: hidden > 0 ? tr(`… ${hidden} more todo${hidden === 1 ? "" : "s"}`, `… 还有 ${hidden} 个待办`) : "",
 	};
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#selectCollapsedTodos
 function selectCollapsed(items: Item[]): { items: Item[]; summary: string } {
 	const open = items.filter((item) => !isClosed(item));
 	if (open.length === 0) return selectWithinCap(items);
@@ -276,7 +257,6 @@ function selectCollapsed(items: Item[]): { items: Item[]; summary: string } {
 	const selected = selectWithinCap(open);
 	return { items: [...lead, ...selected.items], summary: selected.summary };
 }
-// @upstream-end
 
 export type DeltaPhase =
 	| { readonly kind: "items"; readonly name: string; readonly items: readonly Item[]; readonly explained: ReadonlySet<string> }
@@ -291,7 +271,6 @@ export function compactRemovedLabel(title: string): string {
 	return `${forDisplay(title)} · ${tr("removed", "已删除")}`;
 }
 
-/** Full view for INIT, VIEW and expanded cards; incremental CRUD shows only the items/goal changed in this call. */
 export function resultView(details: ReadTodoDetails, args: unknown, expanded: boolean): ResultView {
 	if (expanded) return { kind: "full" };
 	const call = parseCall(args);
@@ -426,12 +405,10 @@ export function resultView(details: ReadTodoDetails, args: unknown, expanded: bo
 	return { kind: "delta", goalChanged, phases };
 }
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#partialStrikethrough
 function strike(text: string): string {
 	return `\x1b[9m${text}\x1b[29m`;
 }
 function completionLabel(text: string, transitioned: boolean, frame: number | undefined): string {
-	// Extensions do not always receive animation frames; without one leave the checked label plain.
 	if (frame === undefined || !transitioned) return text;
 	if (frame <= 2) return text;
 	const chars = [...text];
@@ -439,10 +416,7 @@ function completionLabel(text: string, transitioned: boolean, frame: number | un
 	if (count >= chars.length) return strike(text);
 	return `${strike(chars.slice(0, count).join(""))}${chars.slice(count).join("")}`;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#formatTodoLine
-/** One row per task: estimate and missing explanation stay inline so the collapsed card keeps every field on one line. */
 export function compactTodoLabel(item: Item): string {
 	const parts = [forDisplay(item.title), item.time.kind === "estimated" ? `${item.time.minutes}m` : tr("no estimate", "无估计")];
 	if (item.explanation === null) parts.push(tr("[explanation missing]", "[缺少说明]"));
@@ -471,16 +445,11 @@ function formatItem(item: Item, theme: Theme, transitioned: boolean, frame: numb
 		}
 	}
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/render/status-line.ts#renderStatusLine
 function statusLine(theme: Theme, icon: string, meta: string): string {
 	return `${icon} ${theme.fg("accent", tr("Todo", "待办"))}${meta ? ` ${theme.fg("dim", forDisplay(meta).replace(/\r\n?|\n/g, " "))}` : ""}`;
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/render/output-block.ts#renderOutputBlock
-/** Single-section, background-free frame using only public TUI primitives. */
 function framedCard(theme: Theme, header: string, build: () => string[], error = false): Component {
 	return {
 		invalidate() {},
@@ -506,17 +475,13 @@ function framedCard(theme: Theme, header: string, build: () => string[], error =
 		},
 	};
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#todoToolRenderer.renderCall
 export function renderTodoCall(args: unknown, _options: ToolRenderResultOptions, theme: Theme): Component {
 	const call = parseCall(args);
 	const header = statusLine(theme, theme.styledSymbol("status.pending", "muted"), tr("preview — not committed", "预览 — 未提交"));
 	return framedCard(theme, header, () => callPreviewLines(call).map((line) => theme.fg("dim", line)));
 }
-// @upstream-end
 
-// @upstream adapted @oh-my-pi/pi-tui@18.10.1 src/tools/todo.ts#todoToolRenderer.renderResult
 export function renderTodoResult(
 	result: AgentToolResult<unknown>,
 	options: ToolRenderResultOptions,
@@ -636,4 +601,3 @@ export function renderTodoResult(
 		return lines;
 	});
 }
-// @upstream-end

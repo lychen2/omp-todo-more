@@ -1,20 +1,3 @@
-/**
- * Parity runner: drives a real `omp --mode rpc` session against the scripted
- * mock provider, with exactly one todo-more implementation loaded, inside a
- * throwaway root (HOME, PI_CODING_AGENT_DIR, cwd) so the machine's ~/.omp is
- * never read or written.
- *
- * Usage: bun test/parity/run.ts <baseline|candidate> <extension index.ts> <scenario name|all> <out dir>
- *
- * Writes per scenario under <out dir>/<scenario>/:
- *   requests.jsonl  every provider request body (mock-provider.ts)
- *   events.jsonl    every RPC frame omp printed
- *   session/        the session file and its subagent transcripts
- *   git.txt         `git log` with stats of the scenario's cwd (when it is a repository)
- *   git-shas.txt    the repo's commit ids, for normalizing shas into placeholders
- *   result.json     outcome and timings
- * Exit 0 when every scenario completed, 1 otherwise.
- */
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -43,11 +26,6 @@ function modelEntry(id: string): Frame {
 	};
 }
 
-/**
- * Settings each variant runs with. The baseline replaces native todo and reads
- * reminder settings from host `todo.*`; the candidate keeps native todo on (the
- * extension silences its reminders itself) and reads todo-more's plugin settings.
- */
 function variantSettings(variant: Variant, todo: TodoSettings): { config: Frame; plugin: Frame } {
 	switch (variant) {
 		case "baseline":
@@ -148,7 +126,6 @@ async function shell(command: string, cwd: string, env: Record<string, string>):
 type Session = {
 	send(command: Frame): void;
 	request(command: Frame): Promise<Frame>;
-	/** Resolves on the next frame `match` accepts, or rejects after the step timeout. */
 	next(match: (frame: Frame) => boolean, label: string): Promise<Frame>;
 	frames: Frame[];
 	close(): Promise<number>;
@@ -212,7 +189,6 @@ function startOmp(
 					const value: unknown = JSON.parse(line);
 					if (isFrame(value)) onFrame(value);
 				} catch {
-					// A non-JSON stdout line is recorded as-is: an extension printed directly.
 					onFrame({ type: "stdout", line });
 				}
 			}
@@ -223,8 +199,6 @@ function startOmp(
 		send,
 		frames,
 		request(command) {
-			// An in-command `id` (prompt steps pre-compute one for their settle
-			// waiter) is honored so the frames echo the id the waiter matches.
 			const id = typeof command.id === "string" ? command.id : crypto.randomUUID();
 			const { promise, resolve } = Promise.withResolvers<Frame>();
 			pending.set(id, resolve);
@@ -263,11 +237,6 @@ function field(value: unknown, key: string): unknown {
 const settled = (frame: Frame): boolean =>
 	frame.type === "session_settled" || (frame.type === "prompt_result" && frame.sessionSettled === true);
 
-/**
- * `get_entries` reply, fetched lazily: marker strings inside an rpc command resolve
- * from it. "$leaf" → the current leaf entry id; "$entry:<text>" → the id of the one
- * entry whose JSON contains <text> (exactly one match required).
- */
 async function entryIndex(session: Session): Promise<{ entries: Frame[]; leafId: string | undefined }> {
 	const reply = await session.request({ type: "get_entries" });
 	const data = isFrame(reply.data) ? reply.data : {};
@@ -323,19 +292,12 @@ async function runStep(
 	enqueue(step.turns);
 	switch (step.kind) {
 		case "prompt": {
-			// Settle is keyed to this prompt's own `prompt_result` frame (same id as its
-			// response), so a duplicate or late settlement of a finished step can never
-			// satisfy this wait. The waiter registers before the send: a local-command
+			// The waiter registers before the send: a local-command
 			// prompt can report `prompt_result` before its response frame arrives.
-			// A builtin-handled message (e.g. `/todo`) reports `agentInvoked: false`
-			// in the response and owes no settlement frame: that response ends the step.
 			const id = crypto.randomUUID();
 			let ownPromptResult = false;
 			const done = session.next((frame: Frame): boolean => {
 				if (frame.type === "prompt_result" && frame.id === id) {
-					// Our prompt's result: settled means done; unsettled (subagent
-					// background work still closing) defers to the settle frame that
-					// follows this very prompt_result.
 					if (frame.sessionSettled === true) return true;
 					ownPromptResult = true;
 					return false;
@@ -352,7 +314,6 @@ async function runStep(
 		}
 		case "steer":
 		case "follow_up": {
-			// No prompt_result owes to these; settle on the session-level frames.
 			await session.request({ type: step.kind, message: step.text });
 			await session.next(settled, `${step.kind} to settle`);
 			return;

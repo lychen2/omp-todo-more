@@ -1,30 +1,9 @@
-/**
- * Behavior regression for the HUD/panel offset skip
- * (oh-my-omp/omp-todo-more#28): the offset derivation must be
- * indistinguishable from re-derivation — same returned nodes, same state —
- * step by step, while skipping branch reads when the branch is unchanged.
- *
- * Growth comes in two flavors: a genuine todo change (new rich snapshot
- * entry — output must change) and a plain message entry (offset must miss
- * and re-derive, output stays the same). Both prove §7's “growth always
- * re-derives”.
- *
- * Each invalidation test also carries a mutation check: the offset update it
- * guards is temporarily broken, and the test must fail. This keeps the tests
- * from passing when the skip logic is removed or bypassed.
- *
- * The empty branch (oh-my-omp/omp-todo-more#43) is the same invariant at the
- * edge: its cached node must be the hidden placeholder the miss path returns,
- * so a hit never diverges from a fresh derivation.
- */
-
 import { describe, expect, test } from "bun:test";
 import { TodoHud, TodoPanel } from "../src/ui.ts";
 import { appendTodoChange, fillBranch, fixture, messageEntry, type UiFixture } from "./ui-fixture.ts";
 
 const DIR = "/tmp/ui-offset-test";
 
-/** Small branch: a rich snapshot plus a few plain entries after it. */
 function smallFixture(name: string): UiFixture {
 	const fx = fixture(`${DIR}/${name}-${process.pid}`);
 	fillBranch(fx.raw, 600);
@@ -66,8 +45,6 @@ describe("growth re-derives", () => {
 		const after = hud.describe();
 		const implCopies = fx.counters.copies;
 		const implReads = fx.counters.reads;
-		// Fresh HUD on the same branch must agree; the genuinely changed
-		// output proves re-derivation reached the renderer.
 		expect(jsonEqual(after, makeHud(fx).describe())).toBe(true);
 		expect(jsonEqual(after, before)).toBe(false);
 		expect(implCopies).toBe(0);
@@ -94,8 +71,6 @@ describe("growth re-derives", () => {
 		const panel = makePanel(fx);
 		panel.describe();
 		appendTodoChange(fx.raw, "Brand new task");
-		// Growth clears the cached node inside `readState()` (§7): the next
-		// `describe()` re-derives without an explicit `invalidate()`.
 		fx.resetCounters();
 		const node = panel.describe();
 		const implCopies = fx.counters.copies;
@@ -122,8 +97,6 @@ describe("growth re-derives", () => {
 		const stale = hud.describe();
 		appendTodoChange(fx.raw, "Brand new task");
 		const fresh = makeHud(fx).describe();
-		// A frozen offset keeps returning the old node; the test fails if
-		// re-derivation is broken because stale and fresh would coincide.
 		expect(jsonEqual(stale, fresh)).toBe(false);
 		expect(jsonEqual(hud.describe(), fresh)).toBe(true);
 	});
@@ -137,9 +110,7 @@ describe("empty branch keeps its placeholder", () => {
 		const second = hud.describe();
 		expect(JSON.stringify(first)).toContain('"hidden":true');
 		expect(JSON.stringify(second)).toContain('"hidden":true');
-		// Cached, not re-created: the empty list keeps the reuse benefit.
 		expect(second).toBe(first);
-		// A hit is indistinguishable from a fresh derivation.
 		expect(jsonEqual(second, makeHud(fx).describe())).toBe(true);
 	});
 
@@ -189,7 +160,6 @@ describe("session switch clears the offset", () => {
 		fxB.resetCounters();
 		const again = switched.describe();
 		expect(jsonEqual(again, first)).toBe(true);
-		// Fresh small branch re-derivation: bounded reads, zero copies.
 		expect(fxB.counters.copies).toBe(0);
 		expect(fxB.counters.reads).toBeLessThanOrEqual(10);
 	});

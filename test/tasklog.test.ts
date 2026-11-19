@@ -23,7 +23,6 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 type ToolResultEvent = { toolName: string; isError: boolean; input: unknown; details: unknown };
 type ToolResultHandler = (event: ToolResultEvent, ctx: ExtensionContext) => Promise<void> | void;
 
-/** The host boundary is the only stub: the log file it writes is read back for real. */
 function handler(cwd: string, artifactsDir: string): { run: ToolResultHandler; ctx: ExtensionContext } {
 	const handlers = new Map<string, ToolResultHandler>();
 	const pi = {
