@@ -8,7 +8,8 @@
 
 ### Fixed
 
-- The post-compaction `<post-compact-ctx>` block no longer repeats the compaction summary: its `ctx show` of the main session rendered the session's handoff, which is that summary, right after the summary itself, so every request after a compaction carried it twice. The block now points at the summary above it, and snapshots recorded before this fix are rendered once more on the next request.
+- The post-compaction `<post-compact-ctx>` block carries only the session's subagents as they stood at the compaction, dated, with running and idle ones always listed and finished ones only when they reported a result. It used to repeat the whole compaction summary as the main session's handoff, the todo goal and task timeline that the plan reminder re-delivers after compaction anyway, a row for the main session itself, and a row for every finished subagent including those that produced nothing. With no qualifying subagent nothing is attached. Blocks recorded before this change are rendered again once on the next request.
+- `ctx list` result summaries show the first line of a subagent's result without heading markers, decode the escapes of a summary cut off mid-string (no more literal `\n`), and truncate at a word boundary.
 
 ## [0.2.1] - 2026-11-19
 

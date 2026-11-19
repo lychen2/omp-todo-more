@@ -239,10 +239,37 @@ function oneLine(value: string): string {
 	return value.replace(/\s+/g, " ").trim();
 }
 
+/** `value` on one line, cut at the last word boundary before `limit` when one sits in its last third. */
 function truncate(value: string, limit = SUMMARY_LIMIT): string {
 	const normalized = oneLine(value);
 	if (normalized.length <= limit) return normalized;
-	return `${normalized.slice(0, Math.max(0, limit - 1))}…`;
+	const hard = normalized.slice(0, Math.max(0, limit - 1));
+	const space = hard.lastIndexOf(" ");
+	return `${space >= (limit * 2) / 3 ? hard.slice(0, space) : hard}…`;
+}
+
+/** A summary cell from free text: its first non-empty line, heading markers removed. */
+function summaryCell(text: string): SummaryCell {
+	for (const raw of text.split(/\r?\n/)) {
+		const line = raw.replace(/^\s*#+\s*/, "").trim();
+		if (line.length > 0) return { kind: "text", text: truncate(line) };
+	}
+	return { kind: "none" };
+}
+
+/** The text of a JSON string literal cut off by a grep column limit (`"abc\n…` without its closing quote). */
+function partialJsonString(raw: string): string {
+	// Drop a dangling escape or unicode escape the cut split, then close the literal.
+	const body = raw
+		.slice(1)
+		.replace(/"$/, "")
+		.replace(/\\(u[0-9a-fA-F]{0,3})?$/, "");
+	try {
+		const decoded: unknown = JSON.parse(`"${body}"`);
+		return typeof decoded === "string" ? decoded : body;
+	} catch {
+		return body;
+	}
 }
 type SummaryScanState = {
 	visited: number;
@@ -313,20 +340,16 @@ function summaryCellFromText(value: string): SummaryCell {
 	const parsed = parseJsonValue(value);
 	if (parsed !== undefined) {
 		const jsonSummary = summaryTextFromJson(parsed);
-		return jsonSummary ? { kind: "text", text: truncate(jsonSummary) } : { kind: "none" };
+		return jsonSummary ? summaryCell(jsonSummary) : { kind: "none" };
 	}
-	const firstLine = value
-		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.find((line) => line.length > 0);
-	return firstLine ? { kind: "text", text: truncate(firstLine) } : { kind: "none" };
+	return summaryCell(value);
 }
 
 function summaryCellFromLine(line: string): SummaryCell | undefined {
 	const parsed = parseJsonValue(line);
 	if (parsed !== undefined) {
 		const text = summaryTextFromJson(parsed);
-		return text ? { kind: "text", text: truncate(text) } : { kind: "none" };
+		return text ? summaryCell(text) : { kind: "none" };
 	}
 	const match = /"(summary|report|report_path|review|verdict|assessment|advice|status|findings)"\s*:\s*(.*?)(?:,\s*)?$/.exec(line.trim());
 	if (!match) return undefined;
@@ -340,13 +363,13 @@ function summaryCellFromLine(line: string): SummaryCell | undefined {
 	} catch {
 		// Partial grep lines may contain an unfinished quoted value.
 		if (rawValue.startsWith('"')) {
-			value = rawValue.slice(1).replace(/"$/, "");
+			value = partialJsonString(rawValue);
 		} else if (rawValue.startsWith("'")) {
 			value = rawValue.slice(1).replace(/'$/, "");
 		}
 	}
 	const text = summaryTextFromJson({ [key]: value });
-	return text ? { kind: "text", text: truncate(text) } : { kind: "none" };
+	return text ? summaryCell(text) : { kind: "none" };
 }
 
 function asPath(value: string | null | undefined): string | undefined {
@@ -1594,35 +1617,14 @@ async function hydrateData(inventory: Inventory, nodes: readonly ContextDraft[])
 	return data;
 }
 
-/**
- * How `ctx show` renders the current session's handoff (its latest
- * compaction summary): `render` writes it out; `inContext` points at the
- * compaction summary the request already carries, for callers that place
- * the rendering next to that summary.
- */
-export type CurrentHandoff = "render" | "inContext";
-
-function currentHandoffText(inventory: Inventory, mode: CurrentHandoff): string {
-	switch (mode) {
-		case "render":
-			return inventory.currentCompactionHandoff;
-		case "inContext":
-			return inventory.currentCompactionHandoff === "(none)" ? "(none)" : "(the compaction summary above)";
-		default: {
-			const unreachable: never = mode;
-			return unreachable;
-		}
-	}
-}
-
-async function hydrateShow(inventory: Inventory, target: ContextDraft, currentHandoff: CurrentHandoff): Promise<ContextNode> {
+async function hydrateShow(inventory: Inventory, target: ContextDraft): Promise<ContextNode> {
 	const data = new Map<string, NodeData>();
 	data.set(inventory.current.id, currentNodeData(inventory));
 	const taskLog = await taskLogFor(inventory.localRoot, target.id, inventory.taskLogs);
 	if (target.id === inventory.current.id) {
 		data.set(target.id, {
 			summary: data.get(target.id)!.summary,
-			handoff: currentHandoffText(inventory, currentHandoff),
+			handoff: inventory.currentCompactionHandoff,
 			tasks: taskLog.counts,
 			timeline: taskLog.timeline,
 			goal: taskLog.goal,
@@ -1646,19 +1648,13 @@ async function hydrateShow(inventory: Inventory, target: ContextDraft, currentHa
 }
 
 /**
- * `ctx list` rendering as a plain string, for callers that need the
- * same text the tool produces but from outside the tool call path
- * (e.g. post-compact-hint.ts injecting the tree right after a
- * compaction boundary). Keeps the tool as the single source of truth
- * for how the list is built and rendered.
- *
- * Default view hides internal contexts (mentor/discuss/trace),
- * showing the current session and its `task` subagents; `all` includes
- * everything. `id` expands the subtree rooted at that context. Returns
- * `undefined` only when `id` is given but not found, so the caller can
- * error with the set of known ids.
+ * `ctx list` rendering as a plain string. The default view hides internal
+ * contexts (mentor/discuss/trace), showing the current session and its
+ * `task` subagents; `all` includes everything. `id` expands the subtree
+ * rooted at that context. Returns `undefined` only when `id` is given but
+ * not found, so the caller can error with the set of known ids.
  */
-export async function renderCtxListText(
+async function renderCtxListText(
 	inventory: Inventory,
 	options: { id?: string; all?: boolean } = {},
 ): Promise<{ text: string; total: number; shown: number; hidden: number } | undefined> {
@@ -1689,23 +1685,55 @@ export async function renderCtxListText(
 }
 
 /**
- * `ctx show <id>` rendering as a plain string. Same output shape and
- * source of truth as the tool call. `id` defaults to the current
- * session so post-compaction injections can attach the main session's
- * goal and per-task timeline without a follow-up tool call. Returns `undefined`
- * when the id is not in the inventory.
+ * `ctx show <id>` rendering as a plain string; `id` defaults to the current
+ * session. Returns `undefined` when the id is not in the inventory.
  */
-export async function renderCtxShowText(
-	inventory: Inventory,
-	id: string | undefined,
-	currentHandoff: CurrentHandoff,
-): Promise<{ text: string; id: string } | undefined> {
+async function renderCtxShowText(inventory: Inventory, id: string | undefined): Promise<{ text: string; id: string } | undefined> {
 	const requestedId = id?.trim() || inventory.current.id;
 	const target = findDraft(inventory.root, requestedId);
 	if (!target) return undefined;
-	const root = await hydrateShow(inventory, target, currentHandoff);
+	const root = await hydrateShow(inventory, target);
 	const shownNode = flattenNode(root).find((entry) => entry.node.id === target.id)!.node;
 	return { text: renderShow(shownNode, parentChain(root, target.id)), id: target.id };
+}
+
+/** `node`'s roster rows at `depth`: itself when worthy or when a descendant is, then those descendants. */
+function rosterLines(node: ContextNode, depth: number): { lines: string[]; omitted: number } {
+	const lines: string[] = [];
+	let omitted = 0;
+	const childLines: string[] = [];
+	for (const child of node.children) {
+		const sub = rosterLines(child, depth + 1);
+		childLines.push(...sub.lines);
+		omitted += sub.omitted;
+	}
+	// A row carries something the model can act on: a live agent, or a finished one's result.
+	const worthy = node.status === "running" || node.status === "idle" || node.summary.kind === "text";
+	if (worthy || childLines.length > 0) lines.push(renderNodeLine(node, depth), ...childLines);
+	else omitted += 1;
+	return { lines, omitted };
+}
+
+/**
+ * The `task` subagents under the current session, one `ctx list` row each:
+ * running and idle ones always, finished ones (parked, aborted, on disk) only
+ * with a result summary. Internal contexts (mentor/discuss/trace) and the
+ * current session itself are left out. `undefined` when no row qualifies.
+ */
+export async function renderSubagentRoster(inventory: Inventory): Promise<{ text: string; shown: number; omitted: number } | undefined> {
+	const pruned = pruneChildren(inventory.root, (node) => classifyContext(node) === "task");
+	const nodes = pruned.children.flatMap((child) => flattenDraft(child).map((entry) => entry.node));
+	if (nodes.length === 0) return undefined;
+	const data = await hydrateData(inventory, nodes);
+	let omitted = 0;
+	const lines: string[] = [];
+	for (const child of pruned.children) {
+		const rows = rosterLines(materialize(child, data), 0);
+		lines.push(...rows.lines);
+		omitted += rows.omitted;
+	}
+	if (lines.length === 0) return undefined;
+	return { text: lines.join("\n"), shown: lines.length, omitted };
 }
 
 export function registerCtxTool(pi: ExtensionAPI): void {
@@ -1740,7 +1768,7 @@ export function registerCtxTool(pi: ExtensionAPI): void {
 					};
 				}
 			} else {
-				const result = await renderCtxShowText(inventory, requestedId, "render");
+				const result = await renderCtxShowText(inventory, requestedId);
 				if (result) {
 					return {
 						content: [{ type: "text", text: result.text }],

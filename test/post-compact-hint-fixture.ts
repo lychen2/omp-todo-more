@@ -77,7 +77,8 @@ export function referenceCall(fixture: Fixture, event: { type: "context"; messag
 		case "none":
 			return undefined;
 		case "rendered":
-			return { messages: referenceWithPayload(event.messages, state.text) };
+			// An empty roster records "" and attaches nothing.
+			return state.text === "" ? undefined : { messages: referenceWithPayload(event.messages, state.text) };
 		case "unrendered":
 			return undefined;
 	}

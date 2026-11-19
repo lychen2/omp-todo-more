@@ -1,80 +1,65 @@
 /**
- * Post-compaction hint: after a compaction boundary, every model call of
- * the main session carries the rendered `ctx list` output plus the main
- * session's `ctx show` (handoff + goal + per-task timeline), so the model
- * sees pre-compaction context without spending tool calls to fetch it.
+ * Post-compaction roster: after a compaction boundary, every model call of
+ * the main session carries the session's `task` subagents as they stood at
+ * the compaction, one `ctx list` row each, so the model still knows which
+ * agents exist, which are running, and what the finished ones reported.
  *
- * Rationale. Compaction replaces the working transcript with a short
- * digest. Per-context handoff, task log, and subagent history stay on
- * disk and are exactly what `ctx list` and `ctx show` surface. Nudging
- * the model to call them costs round trips and is easy to skip; this
- * plugin builds one ctx inventory and renders it through the tool's own
- * helpers (`renderCtxListText`, `renderCtxShowText`), so list and show
- * describe the same snapshot. The main session's handoff is the
- * compaction summary the payload follows, so `ctx show` points at it
- * instead of repeating it.
+ * Rationale. The compaction summary is prose about the work and is not a
+ * reliable inventory of agent ids; the todo plan is re-delivered by
+ * planning.ts's context-delta stream once compaction drops it. The roster
+ * carries only what neither does: live agents (running, idle) and finished
+ * agents with a result summary, rendered by the `ctx` tool's own row
+ * renderer. The current session, its handoff (the summary itself), its
+ * goal and task timeline (the todo plan) are not repeated.
  *
  * Delivery. The payload is context, not a message: sending it as a user
  * message starts a model turn of its own (idle) or lands after the final
  * answer (queued steer), and the model then repeats that answer. Instead
  * the `context` hook places it right after the compaction summary in each
- * request. The snapshot is rendered on the first request after a
- * compaction and persisted as a custom session entry keyed by the
- * compaction entry id, so the payload stays byte-identical for every later
- * request until the next compaction, and survives resume.
+ * request. The roster is rendered on the first request after a compaction
+ * and persisted as a custom session entry keyed by the compaction entry id
+ * (an empty text when no subagent qualifies), so the payload stays
+ * byte-identical for every later request until the next compaction, and
+ * survives resume. Its header dates the rows, since statuses change after.
  *
  * Scope. Main session only, mirroring tool-policy-nag: subagents run
  * short, decomposed slices and do not benefit from a post-compaction
- * ctx dump.
+ * roster.
  */
 
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { branchFacts, contextBranch, POST_COMPACT_SNAPSHOT_TYPE, POST_COMPACT_SNAPSHOT_VERSION } from "../branch.ts";
 import { errorText } from "../errors.ts";
-import { buildInventory, renderCtxListText, renderCtxShowText } from "./inventory.ts";
+import { buildInventory, renderSubagentRoster } from "./inventory.ts";
 
 /** Custom message type of the payload placed into each request. */
 const CONTEXT_MESSAGE_TYPE = "todo-more.post-compact-ctx";
 
-type MessagePayload = {
-	readonly listText: string;
-	readonly total: number;
-	readonly showText: string | undefined;
-	readonly showId: string | undefined;
-};
+function clockTime(timestamp: string): string {
+	const date = new Date(timestamp);
+	if (Number.isNaN(date.getTime())) return "the compaction";
+	const pad = (value: number): string => String(value).padStart(2, "0");
+	return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
-const buildMessage = (payload: MessagePayload): string => {
-	// Delimited block so the model treats the payload as an
-	// auto-attached artifact, not as a fresh user instruction that
-	// must be acted on.
-	const { listText, total, showText, showId } = payload;
-	const lines: string[] = [
-		"<post-compact-ctx>",
-		`Auto-attached after compaction. Same output as \`ctx list\` (${total} context(s)).`,
-		"Sibling contexts: `ctx show <id>` for their handoff + goal + per-task timeline;",
-		"read `history://<id>` only when the timeline is not enough.",
-		"",
-		"## List",
-		"",
-		listText,
-	];
-	if (showText !== undefined) {
-		lines.push("", `## Current session (\`ctx show ${showId ?? ""}\`)`.trimEnd(), "", showText);
-	}
-	lines.push("</post-compact-ctx>");
-	return lines.join("\n");
-};
-
-async function renderSnapshot(ctx: ExtensionContext): Promise<{ text: string; total: number } | undefined> {
+/** The rendered roster block, or "" when no subagent qualifies. */
+async function renderRoster(ctx: ExtensionContext): Promise<{ text: string; shown: number; omitted: number }> {
 	const inventory = await buildInventory(ctx);
-	const list = await renderCtxListText(inventory);
-	if (!list) return undefined;
-	// The payload sits right after the compaction summary, which is the
-	// current session's handoff: rendering it again would send it twice.
-	const show = await renderCtxShowText(inventory, undefined, "inContext");
-	const text = buildMessage({ listText: list.text, total: list.total, showText: show?.text, showId: show?.id });
-	return { text, total: list.total };
+	const roster = await renderSubagentRoster(inventory);
+	if (roster === undefined) return { text: "", shown: 0, omitted: 0 };
+	const at = inventory.current.latestCompaction ? clockTime(inventory.current.latestCompaction.timestamp) : "the compaction";
+	// Delimited block so the model treats the payload as an auto-attached
+	// artifact, not as a fresh user instruction that must be acted on.
+	const lines = [
+		"<post-compact-ctx>",
+		`Subagents of this session as of ${at}, when the context was compacted. Statuses may have changed since: \`ctx list\` shows the current ones. \`agent://<id>\` reads a result, \`history://<id>\` a transcript.`,
+		"",
+		roster.text,
+	];
+	if (roster.omitted > 0) lines.push("", `${roster.omitted} finished subagent(s) without a result are not listed.`);
+	lines.push("</post-compact-ctx>");
+	return { text: lines.join("\n"), shown: roster.shown, omitted: roster.omitted };
 }
 
 /** `messages` with the payload placed right after the last compaction summary (start of the list when none). */
@@ -99,19 +84,23 @@ export function registerPostCompactHint(pi: ExtensionAPI): void {
 			const boundary = branchFacts(contextBranch(ctx)).compaction;
 			switch (boundary.kind) {
 				case "none":
+				case "empty":
 					return undefined;
 				case "rendered":
 					return { messages: withPayload(event.messages, boundary.text) };
 				case "unrendered": {
-					const snapshot = await renderSnapshot(ctx);
-					if (snapshot === undefined) return undefined;
+					const roster = await renderRoster(ctx);
 					pi.appendEntry(POST_COMPACT_SNAPSHOT_TYPE, {
 						version: POST_COMPACT_SNAPSHOT_VERSION,
 						compactionId: boundary.compactionId,
-						text: snapshot.text,
+						text: roster.text,
 					});
-					pi.logger.info("Post-compaction ctx attached", { compactionId: boundary.compactionId, total: snapshot.total });
-					return { messages: withPayload(event.messages, snapshot.text) };
+					pi.logger.info("Post-compaction roster recorded", {
+						compactionId: boundary.compactionId,
+						shown: roster.shown,
+						omitted: roster.omitted,
+					});
+					return roster.text === "" ? undefined : { messages: withPayload(event.messages, roster.text) };
 				}
 				default: {
 					const unreachable: never = boundary;
@@ -119,7 +108,7 @@ export function registerPostCompactHint(pi: ExtensionAPI): void {
 				}
 			}
 		} catch (error) {
-			pi.logger.warn("Post-compaction ctx attachment failed", { error: errorText(error) });
+			pi.logger.warn("Post-compaction roster attachment failed", { error: errorText(error) });
 			return undefined;
 		}
 	});

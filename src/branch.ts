@@ -44,24 +44,30 @@ export type HumanMark =
 			readonly state: TodoMoreState;
 	  };
 
-/** Custom session entry holding one compaction's rendered `ctx` snapshot (ctx/post-compact-hint.ts); never sent to the model itself. */
+/**
+ * Custom session entry holding one compaction's rendered subagent roster
+ * (ctx/post-compact-hint.ts), `""` when no subagent qualified; never sent to
+ * the model itself.
+ */
 export const POST_COMPACT_SNAPSHOT_TYPE = "todo-more.post-compact-ctx";
 /**
- * Rendering version of a snapshot entry. Entries without it repeated the
- * compaction summary inside the payload; they do not count as rendered, so
- * the next request renders the compaction once more.
+ * Rendering version of a snapshot entry. Entries of other versions hold an
+ * earlier payload (`ctx list` plus `ctx show` of the main session, which
+ * repeated the compaction summary); they do not count as rendered, so the
+ * next request renders the compaction once more.
  */
-export const POST_COMPACT_SNAPSHOT_VERSION = 2;
+export const POST_COMPACT_SNAPSHOT_VERSION = 3;
 const postCompactSnapshotSchema = z.object({
 	version: z.literal(POST_COMPACT_SNAPSHOT_VERSION),
 	compactionId: z.string(),
 	text: z.string(),
 });
 
-/** The latest compaction on the branch and the `ctx` snapshot recorded for it, if any. */
+/** The latest compaction on the branch and the roster recorded for it, if any. */
 export type CompactionBoundary =
 	| { readonly kind: "none" }
 	| { readonly kind: "unrendered"; readonly compactionId: string }
+	| { readonly kind: "empty"; readonly compactionId: string }
 	| { readonly kind: "rendered"; readonly compactionId: string; readonly text: string };
 
 /** The branch facts a read hands out. Callers MUST NOT mutate the collections. */
@@ -227,9 +233,11 @@ function foldCompaction(acc: Accumulator, entry: SessionEntry): void {
 	if (!parsed.success) return;
 	const compactionId = acc.compaction.compactionId;
 	acc.compaction =
-		parsed.data.compactionId === compactionId
-			? { kind: "rendered", compactionId, text: parsed.data.text }
-			: { kind: "unrendered", compactionId };
+		parsed.data.compactionId !== compactionId
+			? { kind: "unrendered", compactionId }
+			: parsed.data.text === ""
+				? { kind: "empty", compactionId }
+				: { kind: "rendered", compactionId, text: parsed.data.text };
 }
 
 function foldEntry(acc: Accumulator, entry: SessionEntry): void {
