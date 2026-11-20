@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionRunner, RegisteredTool } from "@oh-my-pi/pi-coding-agent";
 import { ExtensionToolWrapper, RegisteredToolAdapter } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/wrapper";
-import type { TUI } from "@oh-my-pi/pi-tui";
+import type { DescribeContext, TUI } from "@oh-my-pi/pi-tui";
 import { ToolExecutionComponent } from "@oh-my-pi/pi-tui/chat/tool-execution";
 import { TODO_TOOL_DEFINITION } from "../index.ts";
 import type { TodoMoreSnapshot } from "../src/state.ts";
@@ -100,7 +100,14 @@ function nativeStrings(target: ToolExecutionComponent): string[] {
 		else if (Array.isArray(value)) for (const item of value) walk(item);
 		else if (value && typeof value === "object") for (const item of Object.values(value)) walk(item);
 	};
-	walk(target.describe({ supports: (kind: string) => kind === "tool" } as never));
+	const context: DescribeContext = {
+		cols: 80,
+		reduceMotion: false,
+		dark: true,
+		supports: (kind) => kind === "tool",
+		feature: () => false,
+	};
+	walk(target.describe(context));
 	return found;
 }
 

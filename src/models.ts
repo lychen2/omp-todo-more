@@ -1,6 +1,7 @@
+import type { Model } from "@oh-my-pi/pi-ai";
 import type { BranchFacts } from "./branch.ts";
 
-export type ModelRef = { readonly provider: string; readonly id: string };
+export type ModelRef = Pick<Model, "provider" | "id">;
 
 export function participatingModels(facts: BranchFacts, current: ModelRef | undefined): string[] {
 	const models = current === undefined ? facts.modelsSinceCommit : [...facts.modelsSinceCommit, `${current.provider}/${current.id}`];

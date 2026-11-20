@@ -1,6 +1,8 @@
 import type { AgentTool, AgentToolUpdateCallback } from "@oh-my-pi/pi-agent-core";
 import type { AgentSession, ExtensionAPI, ExtensionContext, ToolDefinition, ToolInfo } from "@oh-my-pi/pi-coding-agent";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+import type { Theme } from "@oh-my-pi/pi-tui/theme";
+import type { ToolRenderer } from "@oh-my-pi/pi-tui/tools/renderer";
 import { logger } from "@oh-my-pi/pi-utils";
 import { tr } from "./omomp-shared/i18n.ts";
 import { errorText } from "./src/errors.ts";
@@ -74,8 +76,9 @@ async function restoreTodo(session: AgentSession, ctx: ExtensionContext): Promis
 			return tr("Todo", "待办");
 		},
 		execute: async (_toolCallId: string, params: unknown) => executeTodo(session, params, ctx),
-	};
-	await session.refreshRpcHostTools([hostTool as unknown as AgentTool]);
+	} satisfies AgentTool<typeof parametersSchema, TodoMoreDetails, Theme> & ToolRenderer;
+	// refreshRpcHostTools' AgentTool[] parameter cannot express a Theme-typed renderCall in strict variance; the satisfies above pins the real shape.
+	await session.refreshRpcHostTools([hostTool as AgentTool]);
 }
 
 const guardedSessions = new WeakSet<AgentSession>();

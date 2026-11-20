@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
-import type { Api, AssistantMessage, Model, TextContent, ToolChoice } from "@oh-my-pi/pi-ai";
+import type { AssistantMessage, TextContent } from "@oh-my-pi/pi-ai";
 import { type AgentSession, type ExtensionAPI, type ExtensionContext, type MessageRenderer, Text, z } from "@oh-my-pi/pi-coding-agent";
+import { buildNamedToolChoice } from "@oh-my-pi/pi-coding-agent/utils/tool-choice";
 import { type NativeNode, node, span } from "@oh-my-pi/pi-tui";
 import { escapeXmlText } from "@oh-my-pi/pi-utils";
 import { tr } from "../omomp-shared/i18n.ts";
@@ -214,38 +215,6 @@ function isAwaitingUserAnswer(message: AssistantMessage): boolean {
 		return false;
 	}
 	return false;
-}
-
-function buildNamedToolChoice(toolName: string, model?: Model<Api>): ToolChoice | undefined {
-	if (!model) return undefined;
-
-	if (model.api === "anthropic-messages" || model.api === "bedrock-converse-stream") {
-		return { type: "tool", name: toolName };
-	}
-
-	if (
-		model.api === "openai-codex-responses" ||
-		model.api === "openai-responses" ||
-		model.api === "openai-completions" ||
-		model.api === "azure-openai-responses" ||
-		model.api === "openrouter"
-	) {
-		// Such a choice never
-		// reaches the wire, so it must not be reported as a forced one.
-		const compat = model.compat as { supportsToolChoice?: boolean; supportsForcedToolChoice?: boolean };
-		if (compat?.supportsToolChoice === false || compat?.supportsForcedToolChoice === false) return undefined;
-		return { type: "function", name: toolName };
-	}
-
-	if (model.api === "ollama-chat") {
-		return { type: "function", name: toolName };
-	}
-
-	if (model.api === "google-generative-ai" || model.api === "google-gemini-cli" || model.api === "google-vertex") {
-		return "required";
-	}
-
-	return undefined;
 }
 
 function goalBlock(state: ListState): string[] {

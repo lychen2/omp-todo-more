@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
-import { type ExtensionContext, type SessionEntry, z } from "@oh-my-pi/pi-coding-agent";
+import { type ExtensionContext, type SessionEntry, type SessionManager, z } from "@oh-my-pi/pi-coding-agent";
 import {
 	type AskWait,
 	EMPTY,
@@ -205,10 +205,10 @@ export function askWaits(entries: readonly SessionEntry[]): AskWait[] {
 	return foldBranch(entries).waits.slice();
 }
 
-export type BranchSource = { getBranchView(): readonly SessionEntry[]; getLeafId(): string | null };
+export type BranchSource = Pick<SessionManager, "getBranchView" | "getLeafId">;
 
 export function contextBranch(ctx: Pick<ExtensionContext, "sessionManager">): BranchSource {
-	return ctx.sessionManager as unknown as BranchSource;
+	return ctx.sessionManager as SessionManager;
 }
 
 const accumulators = new WeakMap<BranchSource, Accumulator>();
