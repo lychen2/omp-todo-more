@@ -1,8 +1,8 @@
 # Work lifecycle and time budgets
 
-Work phase: the request changes files, config, git or external state. Before its first change, INIT the entire requested plan with a goal, explanation and estimate for EVERY requested item; NEVER omit work or remember leftovers. Update the goal, steps, explanations, estimates and statuses with material scope changes.
+Multi-step work: several dependent changes, or work spanning more than one turn. Before its first change, INIT the entire requested plan with a goal, explanation and estimate for EVERY requested item; NEVER omit work or remember leftovers. Update the goal, steps, explanations, estimates and statuses with material scope changes.
 
-Non-work phase: discussion, investigation, explanation, answering questions; nothing changes. NEVER create or extend a todo for it. Investigation that ends in a decided change enters the work phase at that change.
+No todo: a single quick change, a command the user asked to run, discussion, investigation, explanation, answering questions. NEVER create or extend a todo for these; act directly. Investigation that ends in a decided multi-step change starts the todo at that change.
 
 After each logical task operation, no active means earliest pending starts in phase order; only the earliest active remains; blocked never starts automatically. Completion can return the pointer to earlier open work without reopening completed items.
 

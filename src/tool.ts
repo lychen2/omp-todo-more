@@ -577,7 +577,7 @@ function operations(commands: TodoCommand[]): Operations {
 	return { kind: "ok", params };
 }
 
-export type ParentCwd = () => string | undefined;
+export type ParentCwd = () => string | undefined | Promise<string | undefined>;
 
 const TOP_LEVEL: ParentCwd = () => undefined;
 
@@ -588,7 +588,18 @@ async function completeWithCommit(
 	parentCwd: ParentCwd,
 ): Promise<{ kind: "ok"; note?: string } | { kind: "refused"; message: string }> {
 	const cwd = session.sessionManager.getCwd();
-	const parent = parentCwd();
+	let parent: string | undefined;
+	try {
+		parent = await parentCwd();
+	} catch (error) {
+		const state = await worktreeState(cwd);
+		if (state.kind === "failed") return { kind: "refused", message: state.message };
+		if (state.kind === "clean" || state.kind === "no-repository") {
+			return { kind: "ok", note: "No uncommitted work: this DONE committed nothing; T3 parent metadata was unavailable." };
+		}
+		const detail = error instanceof Error ? error.message : String(error);
+		return { kind: "refused", message: `Cannot verify the parent worktree before completing dirty work: ${detail}` };
+	}
 	const shared = parent === undefined ? null : sharedWorktreeRoot(cwd, parent);
 	if (shared !== null) {
 		return {

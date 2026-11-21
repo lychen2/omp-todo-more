@@ -106,6 +106,7 @@ function prepareRoot(variant: Variant, scenario: Scenario, port: number): { root
 		PI_CODING_AGENT_DIR: agentDir,
 		TMPDIR: path.join(root, "tmp"),
 		OMOMP_LANG: scenario.lang ?? "en",
+		...(scenario.t3 === true ? { T3_PI_MCP_EXTENSION_PATH: "test-t3-bridge" } : {}),
 		GIT_AUTHOR_NAME: "parity",
 		GIT_AUTHOR_EMAIL: "parity@example.invalid",
 		GIT_COMMITTER_NAME: "parity",

@@ -15,6 +15,7 @@ import { registerReviewApi } from "./src/review-api.ts";
 import { sessionOf } from "./src/session.ts";
 import { readSettings } from "./src/settings.ts";
 import { initializeTernPlugin } from "./src/tern-plugin-install.ts";
+import { t3ParentCwd } from "./src/t3-parent.ts";
 import { customFormat, DESCRIPTION, type ParentCwd, parametersSchema, runTodo, type TodoMoreDetails } from "./src/tool.ts";
 import { todoDocTopics } from "./src/topics.ts";
 import { registerUi } from "./src/ui.ts";
@@ -42,15 +43,16 @@ const TOOL_FIELDS = {
 const ownSession = (ctx: ExtensionContext): AgentSession | undefined => sessionOf(ctx.agent.id);
 
 const parentCwdOf =
-	(ctx: ExtensionContext): ParentCwd =>
+	(ctx: ExtensionContext, events: ExtensionAPI["events"] | undefined): ParentCwd =>
 	() => {
 		const parentId = ctx.agent.parentId;
-		return parentId === undefined ? undefined : AgentRegistry.global().get(parentId)?.session?.sessionManager.getCwd();
+		const cwd = parentId === undefined ? undefined : AgentRegistry.global().get(parentId)?.session?.sessionManager.getCwd();
+		return cwd ?? t3ParentCwd(events);
 	};
 
-async function executeTodo(session: AgentSession, params: unknown, ctx: ExtensionContext) {
+async function executeTodo(session: AgentSession, params: unknown, ctx: ExtensionContext, events: ExtensionAPI["events"] | undefined) {
 	const settings = await readSettings({ logger }, ctx);
-	return runTodo(session, params, parentCwdOf(ctx), settings.leafMaxMinutes);
+	return runTodo(session, params, parentCwdOf(ctx, events), settings.leafMaxMinutes);
 }
 
 function canonicalToolOrder(all: readonly ToolInfo[], names: Iterable<string>): string[] {
@@ -63,7 +65,7 @@ function canonicalToolOrder(all: readonly ToolInfo[], names: Iterable<string>): 
 	return [...builtins, ...others];
 }
 
-async function restoreTodo(session: AgentSession, ctx: ExtensionContext): Promise<void> {
+async function restoreTodo(session: AgentSession, ctx: ExtensionContext, events: ExtensionAPI["events"]): Promise<void> {
 	const enabled = session.getEnabledToolNames();
 	if (!enabled.includes("edit") || enabled.includes(TOOL_NAME)) return;
 	if (session.getAllToolNames().includes(TOOL_NAME)) {
@@ -75,7 +77,7 @@ async function restoreTodo(session: AgentSession, ctx: ExtensionContext): Promis
 		get label(): string {
 			return tr("Todo", "待办");
 		},
-		execute: async (_toolCallId: string, params: unknown) => executeTodo(session, params, ctx),
+		execute: async (_toolCallId: string, params: unknown) => executeTodo(session, params, ctx, events),
 	} satisfies AgentTool<typeof parametersSchema, TodoMoreDetails, Theme> & ToolRenderer;
 	// refreshRpcHostTools' AgentTool[] parameter cannot express a Theme-typed renderCall in strict variance; the satisfies above pins the real shape.
 	await session.refreshRpcHostTools([hostTool as AgentTool]);
@@ -90,33 +92,37 @@ function guardSubagent(pi: ExtensionAPI, ctx: ExtensionContext): void {
 	guardedSessions.add(session);
 	session.agent.addBeforeModelCallHook(async () => {
 		try {
-			await restoreTodo(session, ctx);
+			await restoreTodo(session, ctx, pi.events);
 		} catch (error) {
 			pi.logger.warn("todo-more could not install todo", { error: errorText(error) });
 		}
 	});
 }
 
-export const TODO_TOOL_DEFINITION = {
-	...TOOL_FIELDS,
-	get label(): string {
-		return tr("Todo", "待办");
-	},
-	execute: async (
-		_toolCallId: string,
-		params: unknown,
-		_signal: AbortSignal | undefined,
-		_onUpdate: AgentToolUpdateCallback<TodoMoreDetails> | undefined,
-		ctx: ExtensionContext,
-	) => {
-		const session = ownSession(ctx);
-		if (session === undefined) throw new Error(`todo: no session registered for agent ${ctx.agent.id}`);
-		return executeTodo(session, params, ctx);
-	},
-} satisfies ToolDefinition<typeof parametersSchema, TodoMoreDetails> & { docTopics(): Readonly<Record<string, string>> };
+function todoTool(events?: ExtensionAPI["events"]) {
+	return {
+		...TOOL_FIELDS,
+		get label(): string {
+			return tr("Todo", "待办");
+		},
+		execute: async (
+			_toolCallId: string,
+			params: unknown,
+			_signal: AbortSignal | undefined,
+			_onUpdate: AgentToolUpdateCallback<TodoMoreDetails> | undefined,
+			ctx: ExtensionContext,
+		) => {
+			const session = ownSession(ctx);
+			if (session === undefined) throw new Error(`todo: no session registered for agent ${ctx.agent.id}`);
+			return executeTodo(session, params, ctx, events);
+		},
+	} satisfies ToolDefinition<typeof parametersSchema, TodoMoreDetails> & { docTopics(): Readonly<Record<string, string>> };
+}
+
+export const TODO_TOOL_DEFINITION = todoTool();
 
 export default async function todoMore(pi: ExtensionAPI): Promise<void> {
-	pi.registerTool(TODO_TOOL_DEFINITION);
+	pi.registerTool(todoTool(pi.events));
 
 	pi.on("before_agent_start", (_event, ctx) => {
 		try {

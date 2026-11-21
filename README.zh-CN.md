@@ -12,7 +12,7 @@
 - **完成时的 git 关联**
   - `DONE` 提交子句 — 功能：经宿主 git 绑定暂存并提交——一个字符串提交全部未提交改动，两个字符串分别是以空白分隔的路径范围与提交信息——把 sha/信息/范围记录在条目上，并拒绝脏检出中不带子句的 `DONE`。时机：在 `todo` 批次中执行 `DONE` 命令时。实例：`DONE "Render the preview" "src/render.ts" "Show streamed intent"`，由 `src/tool.ts` 的 `completeWithCommit` 与 `src/git.ts` 处理。
   - `Model:` trailer — 功能：为提交信息追加 `Model: <provider>/<model-id>` trailer，每个自上次 todo 提交以来本提交会话运行过的模型一个，外加当前模型，各一次、按首次使用顺序。时机：每次 `DONE` 产生提交时。实例：`src/models.ts` 的 `withModelTrailers`；用 `git log --format='%(trailers:key=Model,valueonly)'` 读回。
-  - 父级工作树豁免 — 功能：豁免工作树即其父级工作树的子代理（经 `ctx.agent.parentId` 找到）的提交义务与脏树拒绝，因为该工作树由父级整合。时机：`task:*` 子代理执行每个 `DONE` 时。实例：`index.ts` 的 `parentCwdOf`，工作树共享比较见 `src/git.ts`。
+  - 父级工作树豁免 — 子代理与父级共用 git 工作树时，由父级整合并提交改动。`DONE` 通过活动代理注册表查找原生父级，通过 `omp-t3:parent-cwd:v1` 查询 T3 父级。T3 父级无法核验时，有未提交改动的工作树拒绝完成，干净工作树或非 git 目录可以完成。
 - **会话分支上的列表状态**
   - 快照条目与宿主投影 — 功能：每次接受的变更向会话分支追加一条完整 `mouriya.omp.todo-more` 快照并确认被接受，再把宿主投影（标题为内容、四种状态、blocked 视为 pending）推入 `TodoTracker`，使宿主 HUD、`/todo`、再水合与持久化继续工作。时机：每次被接受的 `todo` 调用与 GUI 保存之后。实例：`src/commit.ts` 的 `appendCustomEntry(TODO_MORE_ENTRY_TYPE, toSnapshot(next))` 与 `session.setTodoPhases(hostPhases(next))`。
   - 分支折叠 — 功能：每次读取都在分支条目上向前折叠——按标题并入宿主的 `user_todo_edit` 记录（`/todo`、RPC `set_todos`、子代理自动完成），把新标题标记为缺少说明与时钟——并为每个 session manager 保留一个增量累加器。时机：工具、提醒、超时或 UI 每次读取列表时。实例：`src/branch.ts` 的 `foldEntry`/`branchFacts`。
@@ -21,12 +21,11 @@
   - 子代理 `todo` 恢复 — 功能：为启用工具中含 `edit` 但不含 `todo` 的子代理会话补回 `todo`，按规范顺序（内置工具按注册表顺序，其余按码点排序）写整份启用集使 fork 保持 prompt 缓存；工具受限会话经 `refreshRpcHostTools` 安装。时机：子代理会话每次模型调用之前，通过在其首个 `before_agent_start` 上挂接的 before-model-call 钩子。实例：`index.ts` 的 `guardSubagent`/`restoreTodo`/`canonicalToolOrder`。
 - **计划与提醒**
   - eager 前导 — 功能：当 `eager` 为 `preferred`（隐藏提醒）或 `always`（还强制具名 `todo` 工具选择）时在首个合资格 prompt 上要求制定分阶段 todo，自动压缩后列表为空时在下一个 prompt 重新发出提醒。时机：`before_agent_start` 钩子的 prompt 起始处，由 `auto_compaction_end` 武装。实例：`src/reminders.ts` 的 `eagerTodoPrelude`/`eagerTodoText`，文本 ``Before substantive work, create a phased todo. … You MUST call `todo` first in this turn.``。
-  - 编辑守卫 — 功能：包装会话 `edit` 工具的 execute，使空 todo 列表下的调用以初始化提醒失败而不是执行编辑，每个工具实例只安装一次、在其批次运行前装好。时机：`session_start`、`before_agent_start` 与 `edit` 的 `tool_call`；检查本身在 `execute` 内运行。实例：`src/planning.ts` 的 `installEditGuard` 返回 `Todo is empty. Work phase … initialize with one complete Todo document`。
   - 计划提醒 — 功能：经共享 delta 流投递 `<system-reminder source="omp-todo-more/planning">`——列表为空时是 `INIT` 指令，否则是完整 JSON 快照加 "Discussion, investigation, explanation and questions add no items" 前言——仅当快照变化时重发，压缩丢弃后恢复。时机：作为隐藏的 `before_agent_start` 消息与每个工具批次后的 `additionalContext`。实例：`src/planning.ts` 的 `reminderBody`/`createDeltaStream("omp-todo-more/planning")`。
   - 原生自动化静默 — 功能：用进程内、从不持久化的 `todo.reminders` 与 `todo.eager` 覆盖关闭宿主自身的停止提醒、mid-run nudge 与 eager 前导，使只有本插件的版本生效。时机：`session_start`、`session_switch` 与每个 `before_agent_start`。实例：`src/settings.ts` 的 `silenceNativeTodoAutomation` 调用 `cfgTodoReminders.override(session.settings, false)`。
   - 主会话停止提醒 — 功能：会话以文本回答结束而仍有未关闭条目时，把提醒作为 `session_stop` 续跑上下文返回，每个停止链最多 `remindersMax` 次，跳过计划模式、进行中的链、等待用户回答的问题与带 wake source 的会话。时机：主会话 `session_stop` 且最后一条是终止性助手回答时。实例：`src/reminders.ts` 的 `checkCompletion`/`reminderText` 发出 `You stopped with N incomplete todo item(s): … (Reminder 1/3)`。
   - 子代理停止提醒 — 功能：把同样的提醒以触发一轮的隐藏 `nextTurn` 消息发送，预算为其分支上最近一条真实用户消息之后的提醒消息数。时机：`sub` 会话以终止性回答结束且仍有未关闭条目时的 `agent_end` 之后。实例：`src/reminders.ts` 中 `agent_end` 钩子的 `ctx.agent.kind === "sub"` 分支。
-  - 延迟截断催促 — 功能：主会话被截断收场（provider 错误、工具调用未完成、无人请求的 abort）时在 10 秒宽限后催促，一旦出现轮次、排队消息或编辑器草稿即取消，并加闩使停滞的链只催一次直到有进展或新周期重新武装。时机：`agent_end` 时武装（此时不触发 `session_stop`）。实例：`src/reminders.ts` 的 `armCutOff`/`CUT_OFF_GRACE_MS`，由 `agent_start`、`session_shutdown`、`session_switch`、`session_branch`、`session_tree` 取消。
+  - 延迟截断催促 — 主会话因 provider 错误、未完成工具调用或无人请求的 abort 截断时，等待 10 秒再续跑。轮次启动、排队消息或编辑器草稿会取消定时器。同一停滞链只催一次，直到再次取得进展。T3 Code 负责启动轮次，因此跳过这个定时器及其配额等待。
   - 配额 429 等待 — 功能：停止原因是用量上限 429 时把截断提醒推迟到账户重置后一分钟（用 provider 重试提示，否则用 omp 对耗尽配额的 30 分钟估算），在编辑器上方显示一行小组件标明发送时间，编辑器有草稿时等到草稿清除。时机：`agent_end` 决定的截断等待之内。实例：`src/quota-wait.ts` 的 `cutOffWait`/`quotaNoticeLine` 渲染 `Todo reminder scheduled for 14:35 (account quota 429, resets 14:34) · Ctrl+N or /todo-more-cancel to cancel`，widget key `todo-more.quota-reminder`。
   - `/todo-more-cancel` 与 `Ctrl+N` — 功能：注册该命令与快捷键取消待发的延迟提醒，把链闩为已取消并通知 `Todo reminder cancelled` 或 `No pending Todo reminder`。时机：用户按 `Ctrl+N` 或运行 `/todo-more-cancel` 时。实例：`src/reminders.ts` 的 `pi.registerShortcut("ctrl+n", …)` 与 `pi.registerCommand("todo-more-cancel", …)`。
   - mid-run nudge — 功能：在 12 次成功的 bash/eval/edit/write/ast_edit 结果而其间没有 `todo` 调用后，发出列出未完成数与目标的隐藏 aside，每周期最多两次。时机：运行了工具的轮次的 `turn_end`。实例：`src/reminders.ts` 的 `takeMidRunNudge` 发出 ``N todo items still open. If you finished a task since last `todo` update, mark it done now…``。
@@ -38,7 +37,7 @@
 - **原生 UI 与 Tern 面板**
   - `todo-more.hud` 小组件 — 功能：在编辑器下方挂载实时 `TodoHud`，跟随被查看的会话——pill、进度及打开富 popover 的 disclosure——并在会话、分支与树跳转时重装。时机：`session_start`/`session_switch`/`session_branch`/`session_tree`。实例：`src/ui.ts` 的 `installHud`/widget key `todo-more.hud`。
   - `/todo` 输入改写 — 功能：在原生前端把交互式 `/todo` 与 `/todo edit` 输入改写为 `/todo-more`，其余 `/todo` 子命令留给宿主。时机：原生渲染生效时匹配 `/^\/todo(?:[\s:]+(.*))?$/` 的 `input` 事件。实例：`src/ui.ts` 的 `input` 钩子返回 `{ text: "/todo-more" }`。
-  - `/todo-more` 命令与编辑器 — 功能：注册该命令打开会话绑定的覆盖层编辑器（`TodoPanel`）以编辑目标字段与条目说明，非交互会话以 `todo-more.ui-unavailable` 消息拒绝，被查看会话变化时丢弃草稿。时机：`/todo-more`、HUD 编辑入口或 `/todo` 改写时。实例：`src/ui.ts` 的 `pi.registerCommand("todo-more", …)`/`TodoPanel`，消息 `Todo More editor requires an interactive UI.`。
+  - `/todo-more` 命令与编辑器 — 在 TUI 中打开绑定会话的 `TodoPanel`。RPC 等非 TUI 模式通过通知显示当前分支快照，包括目标、条目状态、估算、说明、阻塞原因和提交。
   - Tern 包 — 功能：随包发布 `tern/plugin.toml`（id `omp-todo-more`）、`window.luau` 与 `todo-more.css`，其样式表隐藏原生 Todo HUD 同时保留其布局盒，使扩展的小组件占据该槽位。时机：Tern 中该插件已安装且启用期间。实例：`tern/todo-more.css` 的 `.sf-dock[data-surface="omp.session"]` 网格适配。
   - Tern owner-CLI 安装 — 功能：加载时经 `tern plugin dir/list/install --json` 安装或修复该包，副本一致时跳过，Tern 存在但检查失败时拒绝整个扩展工厂。时机：异步工厂内、订阅 review API 之前；`tern` 不在 `PATH` 上时跳过。实例：`src/tern-plugin-install.ts` 的 `initializeTernPlugin`/`isCurrent`。
 - **同步 review 协议**

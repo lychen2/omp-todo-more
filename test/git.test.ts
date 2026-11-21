@@ -283,6 +283,39 @@ describe("a subagent's completion in its parent's worktree", () => {
 		expect(await git(parent, "log", "-1", "--format=%s", "main")).toBe("initial");
 		expect(await git(parent, "status", "--porcelain")).toBe("?? foreign.txt");
 	});
+
+	test("an asynchronous parent lookup exempts a dirty shared worktree", async () => {
+		const cwd = await repository({ "a.txt": "one\n" });
+		const harness = fixture(cwd, undefined, () => Promise.resolve(cwd));
+		await harness.call(init, 'ADD "Implement" "Change the tracked file" 5');
+		await Bun.write(join(cwd, "a.txt"), "two\n");
+
+		const completed = await harness.call('DONE "Implement" "Complete the work"');
+		expect(completed.isError).not.toBe(true);
+		expect(itemOf(harness.snapshot(), "Implement").status).toBe("completed");
+		expect(itemOf(harness.snapshot(), "Implement").commit).toBeUndefined();
+		expect(await git(cwd, "log", "-1", "--format=%s")).toBe("initial");
+		expect(await git(cwd, "status", "--porcelain")).toBe("M a.txt");
+	});
+
+	test("an unavailable parent lookup refuses dirty work and permits clean work", async () => {
+		const cwd = await repository({ "a.txt": "one\n" });
+		const harness = fixture(cwd, undefined, () => Promise.reject(new Error("bridge offline")));
+		await harness.call(init, 'ADD "Implement" "Change the tracked file" 5');
+		await Bun.write(join(cwd, "a.txt"), "two\n");
+
+		const refused = await harness.call('DONE "Implement" "Complete the work"');
+		expect(refused.isError).toBe(true);
+		expect(textOf(refused)).toContain("bridge offline");
+		expect(itemOf(harness.snapshot(), "Implement").status).toBe("in_progress");
+		expect(await git(cwd, "log", "-1", "--format=%s")).toBe("initial");
+		expect(await git(cwd, "status", "--porcelain")).toBe("M a.txt");
+		await Bun.write(join(cwd, "a.txt"), "one\n");
+
+		const completed = await harness.call('DONE "Implement"');
+		expect(completed.isError).not.toBe(true);
+		expect(itemOf(harness.snapshot(), "Implement").status).toBe("completed");
+	});
 });
 
 describe("the Model trailers of a completion's commit", () => {

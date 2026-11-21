@@ -18,12 +18,13 @@ import {
 } from "@oh-my-pi/pi-tui";
 import { CustomEditor } from "@oh-my-pi/pi-tui/prompt/custom-editor";
 import { tr } from "../omomp-shared/i18n.ts";
-import { branchFacts } from "./branch.ts";
+import { branchFacts, contextBranch } from "./branch.ts";
 import { saveTodoEdit, type TodoEdit } from "./edit.ts";
 import { errorText } from "./errors.ts";
 import { describeSnapshot, describeTodoHud } from "./native.ts";
+import { estimateText, goalTextLines, snapshotText, statusText } from "./rpc.ts";
 import { sessionOf } from "./session.ts";
-import { type ItemTime, type TodoGoal, type TodoMoreState, type TodoStatus, toSnapshot } from "./state.ts";
+import { type TodoMoreState, toSnapshot } from "./state.ts";
 
 const FIELDS = ["objective", "measure", "doneWhen"] as const;
 type GoalField = (typeof FIELDS)[number];
@@ -39,39 +40,6 @@ function goalFieldLabel(field: GoalField): string {
 		default: {
 			const unreachable: never = field;
 			throw new Error(`Unexpected goal field: ${String(unreachable)}`);
-		}
-	}
-}
-
-function uiGoalLines(goal: TodoGoal): string[] {
-	return [
-		`${tr("Objective", "目标")}: ${goal.objective}`,
-		`${tr("Measure", "衡量方式")}: ${goal.measure}`,
-		`${tr("Done when", "完成条件")}: ${goal.doneWhen}`,
-	];
-}
-
-function uiTimeEstimate(time: ItemTime): string {
-	return time.kind === "estimated"
-		? `${tr("Estimate", "预计")}: ${time.minutes} ${tr("min", "分钟")}`
-		: tr("(no time estimate yet: add one with ESTIMATE)", "（尚无时间估计：请使用 ESTIMATE 添加）");
-}
-
-function uiStatus(status: TodoStatus): string {
-	switch (status) {
-		case "pending":
-			return tr("pending", "待处理");
-		case "in_progress":
-			return tr("in progress", "进行中");
-		case "completed":
-			return tr("completed", "已完成");
-		case "abandoned":
-			return tr("abandoned", "已放弃");
-		case "blocked":
-			return tr("blocked", "已阻塞");
-		default: {
-			const unreachable: never = status;
-			throw new Error(`Unexpected todo status: ${String(unreachable)}`);
 		}
 	}
 }
@@ -417,13 +385,13 @@ export class TodoPanel implements Component {
 				const labels = [tr("Edit goal", "编辑目标")];
 				if (state.kind === "empty") lines.push(tr("Todo list is empty.", "待办列表为空。"));
 				else {
-					lines.push(...(state.goal.kind === "set" ? uiGoalLines(state.goal.goal) : [tr("Goal: [missing]", "目标：[缺少]")]));
+					lines.push(...(state.goal.kind === "set" ? goalTextLines(state.goal.goal) : [tr("Goal: [missing]", "目标：[缺少]")]));
 					for (const phase of state.phases) {
 						lines.push(phase.name);
 						for (const item of phase.items) {
 							lines.push(
-								`${item.title} [${uiStatus(item.status)}]`,
-								uiTimeEstimate(item.time),
+								`${item.title} [${statusText(item.status)}]`,
+								estimateText(item.time),
 								item.explanation.kind === "explained" ? item.explanation.text : tr("[explanation missing]", "[缺少说明]"),
 								`${tr("Blocker", "阻塞原因")}: ${item.blocker ?? tr("(none)", "（无）")}`,
 							);
@@ -592,13 +560,8 @@ export function registerUi(pi: ExtensionAPI): void {
 		return session;
 	};
 	const open = async (ctx: ExtensionContext): Promise<void> => {
-		if (!ctx.hasUI) {
-			pi.sendMessage({
-				customType: "todo-more.ui-unavailable",
-				content: "Todo More editor requires an interactive UI.",
-				display: true,
-				attribution: "agent",
-			});
+		if (ctx.mode !== "tui" || !ctx.hasUI) {
+			ctx.ui.notify(snapshotText(branchFacts(contextBranch(ctx)).state), "info");
 			return;
 		}
 		hud?.closeDisclosure();
@@ -630,7 +593,7 @@ export function registerUi(pi: ExtensionAPI): void {
 		}
 	};
 	const installHud = (ctx: ExtensionContext): void => {
-		if (!ctx.hasUI) return;
+		if (ctx.mode !== "tui" || !ctx.hasUI) return;
 		const session = sessionOf(ctx.agent.id);
 		hudTui = undefined;
 		ctx.ui.setWidget(
@@ -672,7 +635,7 @@ export function registerUi(pi: ExtensionAPI): void {
 	});
 	pi.on("session_shutdown", (_event, ctx) => {
 		cancel();
-		if (ctx.hasUI) ctx.ui.setWidget(HUD_WIDGET_KEY, undefined);
+		if (ctx.mode === "tui" && ctx.hasUI) ctx.ui.setWidget(HUD_WIDGET_KEY, undefined);
 		hudTui = undefined;
 	});
 	pi.on("input", (event, ctx) => {

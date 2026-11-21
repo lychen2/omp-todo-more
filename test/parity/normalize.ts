@@ -232,10 +232,16 @@ for (const scenario of readdirSync(recording).sort()) {
 		writeFileSync(path.join(target, name), text);
 		corpus += text;
 	}
-	const wants = SCENARIOS.find((entry) => entry.name === scenario)?.expect ?? [];
-	for (const needle of wants) {
+	const spec = SCENARIOS.find((entry) => entry.name === scenario);
+	for (const needle of spec?.expect ?? []) {
 		if (!corpus.includes(needle)) {
 			console.error(`${scenario}: expected marker missing from normalized output: ${JSON.stringify(needle)}`);
+			failed = true;
+		}
+	}
+	for (const needle of spec?.forbid ?? []) {
+		if (corpus.includes(needle)) {
+			console.error(`${scenario}: forbidden marker present in normalized output: ${JSON.stringify(needle)}`);
 			failed = true;
 		}
 	}

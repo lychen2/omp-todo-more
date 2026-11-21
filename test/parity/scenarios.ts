@@ -27,8 +27,10 @@ export type Scenario = {
 	readonly setup?: string;
 	readonly rpcUi?: boolean;
 	readonly noUi?: boolean;
+	readonly t3?: boolean;
 	readonly ui?: (request: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown> | undefined> | undefined;
 	readonly expect?: readonly string[];
+	readonly forbid?: readonly string[];
 	readonly steps: readonly Step[];
 };
 
@@ -477,19 +479,24 @@ export const SCENARIOS: readonly Scenario[] = [
 	},
 
 	{
-		name: "planning-edit-guard",
-		expect: ["edit is blocked until the complete document succeeds", "Check that this todo matches your current plan"],
+		name: "planning-edit-advisory",
+		expect: ["1:world", "Check that this todo matches your current plan"],
 		setup: "printf 'hello\\n' > f.txt",
 		steps: [
 			{
 				kind: "prompt",
 				text: "Edit the file.",
-				turns: [call("edit", { input: "[f.txt#DEAD]\nPUT 1.:\n+world", i: "edit file" }), say("Blocked.")],
+				turns: [
+					call("read", { path: "f.txt", i: "read file" }),
+					call("edit", { input: "[f.txt#5BF9]\nPUT 1.=1:\n+world", i: "edit file" }),
+					call("read", { path: "f.txt", i: "check file" }),
+					say("Edited."),
+				],
 			},
 			{
 				kind: "prompt",
-				text: "Now plan then edit.",
-				turns: [INIT1, call("edit", { input: "[f.txt#BEEF]\nPUT 1.:\n+world", i: "edit file" }), say("Edited."), say("Reminder turn.")],
+				text: "Now plan the remaining work.",
+				turns: [INIT1, say("Planned."), say("Reminder turn.")],
 			},
 			{ kind: "prompt", text: "Wrap.", turns: [todo("DONE ALL"), say("Wrapped.")] },
 		],
@@ -515,7 +522,7 @@ export const SCENARIOS: readonly Scenario[] = [
 	{
 		name: "cutoff-grace",
 		config: { retry: { enabled: false } },
-		expect: ["todo-more.reminder", "Reminder 1/3"],
+		expect: ["todo-more.reminder", "Reminder 1/3", "After nudge."],
 		steps: [
 			{
 				kind: "prompt",
@@ -529,6 +536,22 @@ export const SCENARIOS: readonly Scenario[] = [
 			},
 			{ kind: "sleep", ms: 15_000, turns: [say("After nudge.")] },
 			{ kind: "prompt", text: "Wrap.", turns: [todo("DONE ALL"), say("Wrapped.")] },
+		],
+	},
+	{
+		name: "t3-cutoff-grace",
+		t3: true,
+		config: { retry: { enabled: false } },
+		expect: ["provider exploded", "Reminder turn."],
+		forbid: ["Unexpected timer-started turn."],
+		steps: [
+			{ kind: "prompt", text: "Plan the work.", turns: [INIT1, say("Planned."), say("Reminder turn.")] },
+			{
+				kind: "prompt",
+				text: "Hit a provider error.",
+				turns: [{ error: { status: 400, body: '{"error":{"message":"provider exploded","type":"invalid_request_error"}}' } }],
+			},
+			{ kind: "sleep", ms: 12_000, turns: [say("Unexpected timer-started turn.")] },
 		],
 	},
 	{
@@ -680,11 +703,7 @@ export const SCENARIOS: readonly Scenario[] = [
 
 	{
 		name: "slash-ui",
-		expect: ["Todo More editor requires an interactive UI"],
-		noUi: true,
-		// The model prompt runs first: a slash prompt that spawns a custom message
-		// (ui-unavailable) parks the input gate and the next model prompt never
-		// admits, so slash prompts go last.
+		expect: ["Todo More — 0/1 done", "Objective: Ship", "[in progress] Task A", "Estimate: 10 min"],
 		steps: [
 			{ kind: "prompt", text: "Plan.", turns: [INIT1, say("Done."), say("Reminder turn.")] },
 			{ kind: "prompt", text: "/todo-more-cancel", turns: [] },

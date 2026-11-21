@@ -21,6 +21,7 @@ import {
 	timeEstimateText,
 	unexplainedItems,
 } from "./state.ts";
+import { isT3Host } from "./t3-parent.ts";
 
 const MID_RUN_NUDGE_TYPE = `${TODO_MORE_ENTRY_TYPE}.mid-run-nudge`;
 const EAGER_PRELUDE_TYPE = `${TODO_MORE_ENTRY_TYPE}.eager-prelude`;
@@ -337,7 +338,7 @@ Wrap all commands in *** Begin Todo and *** End Todo, JSON-quote strings, and do
 
 After \`${todo}\` succeeds, continue the request in the same turn.
 NEVER call \`${todo}\` again unless task state has materially changed.`
-		: `If this request is work (it changes files, config, git or external state), call \`${todo}\` first to lay out a phased plan in one complete Todo document; discussion, investigation, explanation and questions need no todo. Cover the whole request — investigation through implementation and verification — not just the next step.
+		: `If this request is multi-step work (several dependent changes, or work spanning more than one turn), call \`${todo}\` first to lay out a phased plan in one complete Todo document; a single quick change, a command the user asked to run, discussion, investigation, explanation and questions need no todo. Cover the whole request — investigation through implementation and verification — not just the next step.
 Use INIT "objective" "measure" "doneWhen", PHASE "name", and ADD "title" "explanation" minutes between *** Begin Todo and *** End Todo. Use JSON-quoted strings, specific titles, complete explanations and your own positive integer minute estimates; no fractions or defaults.
 If you create the list, continue the request in the same turn and avoid re-calling \`${todo}\` unless task state materially changes.`;
 	return `<system-reminder>\n${body}\n</system-reminder>\n`;
@@ -770,7 +771,8 @@ export function registerReminders(pi: ExtensionAPI): void {
 					cycle.awaitingProgress = false;
 					return;
 				case "remind":
-					if (latch.kind === "open") armCutOff(ctx, session, cutOff);
+					// T3 owns turn startup, including provider errors and quota waits.
+					if (!isT3Host() && latch.kind === "open") armCutOff(ctx, session, cutOff);
 					return;
 				default: {
 					const unreachable: never = completion;
